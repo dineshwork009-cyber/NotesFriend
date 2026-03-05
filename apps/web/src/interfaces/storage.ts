@@ -1,0 +1,202 @@
+import { IStorage } from "@notesfriend/core";
+import {
+  IndexedDBKVStore,
+  LocalStorageKVStore,
+  MemoryKVStore,
+  IKVStore
+} from "./key-value";
+import { NNCrypto } from "./nncrypto";
+import type {
+  AsymmetricCipher,
+  Cipher,
+  SerializedKey,
+  SerializedKeyPair
+} from "@notesfriend/crypto";
+import { isFeatureSupported } from "../utils/feature-check";
+import { IKeyStore } from "./key-store";
+import { User } from "@notesfriend/core";
+
+type EncryptedKey = { iv: Uint8Array; cipher: BufferSource };
+export type DatabasePersistence = "memory" | "db";
+
+const APP_SALT = "oVzKtazBo7d8sb7TBvY9jw";
+
+export class NNStorage implements IStorage {
+  database: IKVStore;
+
+  constructor(
+    name: string,
+    private readonly keyStore: () => IKeyStore | null = () => null,
+    persistence: DatabasePersistence = "db"
+  ) {
+    this.database =
+      persistence === "memory"
+        ? new MemoryKVStore()
+        : isFeatureSupported("indexedDB")
+        ? new IndexedDBKVStore(name, "keyvaluepairs")
+        : new LocalStorageKVStore();
+  }
+
+  async migrate() {
+    if (!this.keyStore) return;
+    const user = await this.read<User>("user");
+    if (!user) return;
+
+    const key = await this._getCryptoKey(`_uk_@${user.email}`);
+    if (!key) return;
+
+    await this.database.deleteMany([
+      `_uk_@${user.email}`,
+      `_uk_@${user.email}@_k`
+    ]);
+    await this.keyStore()?.setValue("userEncryptionKey", key);
+  }
+
+  read<T>(key: string): Promise<T | undefined> {
+    if (!key) return Promise.resolve(undefined);
+    return this.database.get(key);
+  }
+
+  readMulti<T>(keys: string[]): Promise<[string, T][]> {
+    if (keys.length <= 0) return Promise.resolve([]);
+    return this.database.getMany(keys.sort());
+  }
+
+  writeMulti<T>(entries: [string, T][]) {
+    return this.database.setMany(entries);
+  }
+
+  write<T>(key: string, data: T) {
+    return this.database.set(key, data);
+  }
+
+  remove(key: string) {
+    return this.database.delete(key);
+  }
+
+  removeMulti(keys: string[]) {
+    return this.database.deleteMany(keys);
+  }
+
+  clear() {
+    return this.database.clear();
+  }
+
+  getAllKeys() {
+    return this.database.keys();
+  }
+
+  async deriveCryptoKey(credentials: SerializedKey) {
+    if (!this.keyStore) throw new Error("No key store found!");
+
+    const { password, salt } = credentials;
+    if (!password) throw new Error("Invalid data provided to deriveCryptoKey.");
+
+    const keyData = await NNCrypto.exportKey(password, salt);
+    if (!keyData.key) throw new Error("Invalid key.");
+
+    await this.keyStore()?.setValue("userEncryptionKey", keyData.key);
+  }
+
+  async getCryptoKey(): Promise<string | undefined> {
+    if (!this.keyStore) throw new Error("No key store found!");
+
+    return this.keyStore()?.getValue("userEncryptionKey");
+  }
+
+  async generateCryptoKey(
+    password: string,
+    salt?: string
+  ): Promise<SerializedKey> {
+    if (!password)
+      throw new Error("Invalid data provided to generateCryptoKey.");
+
+    return await NNCrypto.exportKey(password, salt);
+  }
+
+  async generateCryptoKeyPair() {
+    return await NNCrypto.exportKeyPair();
+  }
+
+  async hash(password: string, email: string): Promise<string> {
+    return await NNCrypto.hash(password, `${APP_SALT}${email}`);
+  }
+
+  encrypt(key: SerializedKey, plainText: string): Promise<Cipher<"base64">> {
+    return NNCrypto.encrypt(key, plainText, "text", "base64");
+  }
+
+  encryptMulti(
+    key: SerializedKey,
+    items: string[]
+  ): Promise<Cipher<"base64">[]> {
+    return NNCrypto.encryptMulti(key, items, "text", "base64");
+  }
+
+  decrypt(key: SerializedKey, cipherData: Cipher<"base64">): Promise<string> {
+    cipherData.format = "base64";
+    return NNCrypto.decrypt(key, cipherData, "text");
+  }
+
+  decryptMulti(
+    key: SerializedKey,
+    items: Cipher<"base64">[]
+  ): Promise<string[]> {
+    items.forEach((c) => (c.format = "base64"));
+    return NNCrypto.decryptMulti(key, items, "text");
+  }
+
+  decryptAsymmetric(
+    keyPair: SerializedKeyPair,
+    cipherData: AsymmetricCipher<"base64">
+  ): Promise<string> {
+    cipherData.format = "base64";
+    return NNCrypto.decryptAsymmetric(keyPair, cipherData, "base64");
+  }
+
+  /**
+   * @deprecated
+   */
+  private async _getCryptoKey(name: string) {
+    if (isFeatureSupported("indexedDB") && window?.crypto?.subtle) {
+      const pbkdfKey = await this.read<CryptoKey>(name);
+      const cipheredKey = await this.read<EncryptedKey | string>(`${name}@_k`);
+      if (typeof cipheredKey === "string") return cipheredKey;
+      if (!pbkdfKey || !cipheredKey) return;
+      return await aesDecrypt(pbkdfKey, cipheredKey);
+    } else {
+      const key = await this.read<string>(`${name}@_k`);
+      if (!key) return;
+      return key;
+    }
+  }
+
+  // noop
+  generateCryptoKeyFallback(
+    password: string,
+    salt?: string
+  ): Promise<SerializedKey> {
+    return this.generateCryptoKey(password, salt);
+  }
+
+  // noop
+  async deriveCryptoKeyFallback(): Promise<void> {}
+}
+
+const dec = new TextDecoder();
+async function aesDecrypt(
+  cryptoKey: CryptoKey,
+  data: EncryptedKey
+): Promise<string> {
+  const { iv, cipher } = data;
+
+  const plainText = await window.crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: iv
+    },
+    cryptoKey,
+    cipher
+  );
+  return dec.decode(plainText);
+}

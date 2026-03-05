@@ -1,0 +1,171 @@
+import { Box, Flex } from "@theme-ui/components";
+import { ReactNodeViewProps } from "../react/index.js";
+import { Icon } from "@notesfriend/ui";
+import { Icons } from "../../toolbar/icons.js";
+import { findChildrenInRange } from "@tiptap/core";
+import { useCallback } from "react";
+import type { TaskItemAttributes } from "./task-item.js";
+import { useIsMobile } from "../../toolbar/stores/toolbar-store.js";
+import { isiOS } from "../../utils/platform.js";
+import { DesktopOnly } from "../../components/responsive/index.js";
+import TaskItem from "@tiptap/extension-task-item";
+import { strings } from "@notesfriend/intl";
+
+export function TaskItemComponent(
+  props: ReactNodeViewProps<TaskItemAttributes>
+) {
+  const { editor, updateAttributes, getPos, forwardRef, node } = props;
+  const { checked } = props.node.attrs;
+  const isMobile = useIsMobile();
+
+  const toggle = useCallback(() => {
+    if (!editor.isEditable || !editor) return false;
+
+    const { empty, from, to } = editor.state.selection;
+    const selectedTaskItems = findChildrenInRange(
+      editor.state.doc,
+      { from, to },
+      (node) => node.type.name === TaskItem.name
+    );
+    if (!empty && selectedTaskItems.findIndex((a) => a.node === node) > -1) {
+      editor.commands.command(({ tr }) => {
+        for (const { pos } of selectedTaskItems) {
+          tr.setNodeMarkup(pos, null, { checked: !checked });
+        }
+        return true;
+      });
+    } else {
+      updateAttributes({ checked: !checked });
+    }
+
+    return true;
+  }, [editor, checked, updateAttributes, node]);
+
+  return (
+    <Flex
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        width: "100%",
+        justifyContent: "space-between"
+      }}
+    >
+      <Flex
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          maxWidth: "95%",
+          flexGrow: 1
+        }}
+      >
+        {editor.isEditable && (
+          <Icon
+            className="dragHandle"
+            draggable="true"
+            // NOTE: Turning this off somehow makes drag/drop stop working
+            // properly on touch devices.
+            // contentEditable={false}
+            data-drag-handle
+            path={Icons.dragHandle}
+            sx={{
+              opacity: [1, 1, 0],
+              alignSelf: "start",
+              bg: "transparent",
+              cursor: "grab",
+              mr: "0.2rem",
+              fontFamily: "inherit",
+              marginTop: "calc((1lh - 18px) / 2)"
+            }}
+            size={isMobile ? "2.46ch" : "2.22ch"}
+          />
+        )}
+        <Icon
+          path={checked ? Icons.check : ""}
+          stroke="1px"
+          contentEditable={false}
+          tabIndex={1}
+          sx={{
+            border: "2px solid",
+            borderColor: checked ? "accent" : "icon",
+            borderRadius: "default",
+            alignSelf: "start",
+            p: "1px",
+            marginInlineEnd: 1,
+            cursor: editor.isEditable ? "pointer" : "unset",
+            ":hover": isMobile
+              ? undefined
+              : {
+                  borderColor: "accent"
+                },
+            fontFamily: "inherit",
+            marginTop: "calc((1lh - 16px) / 2)"
+          }}
+          onMouseDown={(e) => {
+            if (globalThis.keyboardShown) {
+              e.preventDefault();
+            }
+            toggle();
+          }}
+          onTouchEnd={(e) => {
+            if (globalThis["keyboardShown"] || isiOS) {
+              e.preventDefault();
+              toggle();
+            }
+          }}
+          color={checked ? "accent" : "icon"}
+          size={isMobile ? "1.70ch" : "1.36ch"}
+        />
+
+        <Box
+          ref={forwardRef}
+          sx={{
+            "> .taskitem-content-wrapper > p": {
+              textDecorationLine: checked ? "line-through" : "none",
+              opacity: checked ? 0.8 : 1
+            },
+            flex: 1,
+            mt: ["3px", "3px", 0],
+            ml: ["2px", "2px", 0]
+          }}
+        />
+      </Flex>
+      <DesktopOnly>
+        <Flex
+          className="taskItemTools"
+          sx={{
+            bg: "background",
+            opacity: 0,
+            alignSelf: "flex-start",
+            marginTop: "calc((1lh - 14px) / 2)"
+          }}
+        >
+          {editor.isEditable && (
+            <Icon
+              className="deleleTaskItem"
+              title={strings.delete()}
+              path={Icons.close}
+              size={18}
+              sx={{
+                cursor: "pointer"
+              }}
+              onClick={() => {
+                if (!editor) return;
+                const pos = getPos();
+
+                // we need to get a fresh instance of the task list instead
+                // of using the one we got via props.
+                const node = editor.state.doc.nodeAt(pos);
+                if (!node) return;
+
+                editor.commands.command(({ tr }) => {
+                  tr.deleteRange(pos, pos + node.nodeSize);
+                  return true;
+                });
+              }}
+            />
+          )}
+        </Flex>
+      </DesktopOnly>
+    </Flex>
+  );
+}

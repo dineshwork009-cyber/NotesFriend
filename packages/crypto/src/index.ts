@@ -1,0 +1,134 @@
+import { ISodium } from "@notesfriend/sodium";
+import Decryption from "./decryption.js";
+import Encryption from "./encryption.js";
+import { INNCrypto } from "./interfaces.js";
+import KeyUtils from "./keyutils.js";
+import Password from "./password.js";
+import {
+  Cipher,
+  EncryptionKey,
+  Input,
+  Output,
+  DataFormat,
+  SerializedKey,
+  SerializedKeyPair,
+  EncryptionKeyPair,
+  AsymmetricCipher
+} from "./types.js";
+
+export class NNCrypto implements INNCrypto {
+  private isReady = false;
+  private sodium!: ISodium;
+
+  private async init() {
+    if (this.isReady) return;
+    this.sodium = new (await import("@notesfriend/sodium")).Sodium();
+    await this.sodium.initialize();
+    this.isReady = true;
+  }
+
+  async encrypt<TOutputFormat extends DataFormat>(
+    key: SerializedKey,
+    input: Input<DataFormat>,
+    format: DataFormat,
+    outputFormat: TOutputFormat = "uint8array" as TOutputFormat
+  ): Promise<Cipher<TOutputFormat>> {
+    await this.init();
+    return Encryption.encrypt(
+      this.sodium,
+      key,
+      input,
+      format,
+      outputFormat
+    ) as Cipher<TOutputFormat>;
+  }
+
+  async encryptMulti<TOutputFormat extends DataFormat>(
+    key: SerializedKey,
+    items: Input<DataFormat>[],
+    format: DataFormat,
+    outputFormat = "uint8array" as TOutputFormat
+  ): Promise<Cipher<TOutputFormat>[]> {
+    await this.init();
+    return items.map((data) =>
+      Encryption.encrypt(this.sodium, key, data, format, outputFormat)
+    );
+  }
+
+  async decrypt<TOutputFormat extends DataFormat>(
+    key: SerializedKey,
+    cipherData: Cipher<DataFormat>,
+    outputFormat: TOutputFormat = "text" as TOutputFormat
+  ): Promise<Output<TOutputFormat>> {
+    await this.init();
+    return Decryption.decrypt(this.sodium, key, cipherData, outputFormat);
+  }
+
+  async decryptMulti<TOutputFormat extends DataFormat>(
+    key: SerializedKey,
+    items: Cipher<DataFormat>[],
+    outputFormat: TOutputFormat = "text" as TOutputFormat
+  ): Promise<Output<TOutputFormat>[]> {
+    await this.init();
+    const decryptedItems: Output<TOutputFormat>[] = [];
+    for (const cipherData of items) {
+      decryptedItems.push(
+        Decryption.decrypt(this.sodium, key, cipherData, outputFormat)
+      );
+    }
+    return decryptedItems;
+  }
+
+  async decryptAsymmetric<TOutputFormat extends DataFormat>(
+    keyPair: SerializedKeyPair,
+    cipherData: AsymmetricCipher<DataFormat>,
+    outputFormat: TOutputFormat = "text" as TOutputFormat
+  ): Promise<Output<TOutputFormat>> {
+    await this.init();
+    return Decryption.decryptAsymmetric(
+      this.sodium,
+      keyPair,
+      cipherData,
+      outputFormat
+    );
+  }
+
+  async hash(password: string, salt: string): Promise<string> {
+    await this.init();
+    return Password.hash(this.sodium, password, salt);
+  }
+
+  async deriveKey(password: string, salt?: string): Promise<EncryptionKey> {
+    await this.init();
+    return KeyUtils.deriveKey(this.sodium, password, salt);
+  }
+
+  async deriveKeyPair(): Promise<EncryptionKeyPair> {
+    await this.init();
+    return KeyUtils.deriveKeyPair(this.sodium);
+  }
+
+  async exportKey(password: string, salt?: string): Promise<SerializedKey> {
+    await this.init();
+    return KeyUtils.exportKey(this.sodium, password, salt);
+  }
+
+  async exportKeyPair(): Promise<SerializedKeyPair> {
+    await this.init();
+    return KeyUtils.exportKeyPair(this.sodium);
+  }
+
+  async createEncryptionStream(key: SerializedKey) {
+    await this.init();
+    return Encryption.createStream(this.sodium, key);
+  }
+
+  async createDecryptionStream(key: SerializedKey, iv: string) {
+    await this.init();
+    return Decryption.createStream(this.sodium, iv, key);
+  }
+}
+
+export * from "./types.js";
+export * from "./interfaces.js";
+export { Decryption };

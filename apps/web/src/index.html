@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <!-- <link rel="manifest" href="/manifest.json" /> -->
+    <!--
+      Notice the use of  in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+    <meta name="description" content="Your private note taking space" />
+    <meta property="og:title" content="Notesfriend" />
+    <meta
+      property="og:description"
+      content="A fully open source & end-to-end encrypted note taking alternative to Evernote."
+    />
+    <meta property="og:image" content="https://app.notesfriend.com/banner.jpg" />
+    <meta
+      property="og:image:alt"
+      content="A fully open source & end-to-end encrypted note taking alternative to Evernote."
+    />
+    <meta property="og:url" content="https://app.notesfriend.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Notesfriend by Dines" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>Notesfriend</title>
+
+    <style id="theme-colors"></style>
+    <script>
+      (async function validateServiceWorkerTrack() {
+        const cookie = document.cookie.match(/release\-track=([^;]+)/);
+        const releaseTrack = cookie ? cookie[1] : "stable";
+        const expectedPrefix =
+          releaseTrack === "beta" ? "notesfriend-beta" : "notesfriend";
+
+        const cacheKeys = await caches.keys();
+        const mismatched = cacheKeys.some(
+          (key) => !key.startsWith(expectedPrefix)
+        );
+
+        if (mismatched) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+          await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+          window.location.reload();
+        }
+      })();
+    </script>
+    <script type="module" src="./index.ts"></script>
+    <style>
+      html {
+        overscroll-behavior: none;
+      }
+
+      html[data-theme="light"] .react-loading-skeleton {
+        --base-color: var(--background-secondary);
+        --highlight-color: #var(--background-secondary);
+      }
+
+      html[data-theme="dark"] .react-loading-skeleton {
+        --base-color: var(--background-secondary);
+        --highlight-color: var(--background-secondary);
+      }
+
+      #splash {
+        background-color: var(--background);
+        height: 100%;
+        width: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #splash svg {
+        transform: scale(1);
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(0.9);
+        }
+
+        70% {
+          transform: scale(1);
+        }
+
+        100% {
+          transform: scale(0.9);
+        }
+      }
+
+      html,
+      body {
+        font-size: 16px;
+      }
+
+      @media only screen and (max-width: 480px) {
+        html,
+        body {
+          font-size: 18px;
+          background-color: var(--background);
+        }
+      }
+
+      :root,
+      body,
+      #root {
+        margin: 0 !important;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      #root {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* svg {
+  width: 1.5rem;
+} */
+      .ReactModal__Overlay {
+        opacity: 0;
+        transition: opacity 200ms ease-in-out;
+      }
+
+      .ReactModal__Overlay--after-open {
+        opacity: 1;
+      }
+
+      .ReactModal__Overlay--before-close {
+        opacity: 0;
+      }
+
+      .slide {
+        background-color: transparent !important;
+      }
+
+      .carousel.carousel-slider {
+        display: flex;
+        flex-direction: row;
+      }
+    </style>
+  </head>
+
+  <body class="theme-scope-base">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <!--     <script src="https://cdn.jsdelivr.net/npm/highlightjs@9.16.2/highlight.pack.min.js"></script>
+ -->
+    <div id="root"></div>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      style="height: 0; width: 0; z-index: -1; position: absolute"
+    >
+      <!--
+        full-logo: used in auth container sidebar (50x50 display)
+        Design: green rounded square + white folded-corner note page + text lines
+      -->
+      <symbol id="full-logo" viewBox="0 0 100 100">
+        <!-- Background: accent green rounded square -->
+        <rect width="100" height="100" rx="20" ry="20" fill="#F97316"/>
+        <!-- Note page body (white, fills most of square) -->
+        <path d="M 16 13 L 63 13 L 84 34 L 84 89 L 16 89 Z" fill="white"/>
+        <!-- Folded corner shadow (darker green triangle) -->
+        <path d="M 63 13 L 84 34 L 63 34 Z" fill="rgba(180,60,0,0.22)"/>
+        <!-- Fold crease line -->
+        <line x1="63" y1="13" x2="63" y2="34" stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
+        <!-- Text lines representing notes content -->
+        <line x1="26" y1="47" x2="75" y2="47" stroke="#F97316" stroke-width="3.2" stroke-linecap="round" opacity="0.5"/>
+        <line x1="26" y1="59" x2="75" y2="59" stroke="#F97316" stroke-width="3.2" stroke-linecap="round" opacity="0.5"/>
+        <line x1="26" y1="71" x2="56" y2="71" stroke="#F97316" stroke-width="3.2" stroke-linecap="round" opacity="0.5"/>
+        <!-- Small "nf" dot accent — the friend badge -->
+        <circle cx="76" cy="82" r="7" fill="#F97316"/>
+        <circle cx="76" cy="82" r="4.5" fill="white" opacity="0.9"/>
+      </symbol>
+
+      <!--
+        themed-logo: used in splash screen (120px height, no background)
+        Design: outlined folded-corner page in accent color — works on light + dark
+      -->
+      <symbol id="themed-logo" viewBox="0 0 100 110">
+        <!-- Page outline -->
+        <path
+          d="M 10 8 L 66 8 L 90 32 L 90 102 L 10 102 Z"
+          fill="none"
+          stroke="var(--accent)"
+          stroke-width="5"
+          stroke-linejoin="round"
+        />
+        <!-- Fold crease -->
+        <path
+          d="M 66 8 L 66 32 L 90 32"
+          fill="none"
+          stroke="var(--accent)"
+          stroke-width="4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          opacity="0.55"
+        />
+        <!-- Text lines -->
+        <line x1="22" y1="52" x2="78" y2="52" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+        <line x1="22" y1="67" x2="78" y2="67" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+        <line x1="22" y1="82" x2="56" y2="82" stroke="var(--accent)" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+      </symbol>
+    </svg>
+    <div id="splash" class="hidden">
+      <svg style="height: 120px">
+        <use href="#themed-logo" />
+      </svg>
+      <span
+        style="
+          margin-top: 10px;
+          font-family: Hack, Consolas, 'Andale Mono', 'Lucida Console',
+            'Liberation Mono', 'Courier New', Courier, monospace;
+          color: var(--paragraph);
+          font-size: 0.8rem;
+        "
+      >
+        Starting up the engines
+      </span>
+    </div>
+    <div id="dialogContainer"></div>
+    <div id="floatingViewContainer"></div>
+    <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
+
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+  </body>
+</html>

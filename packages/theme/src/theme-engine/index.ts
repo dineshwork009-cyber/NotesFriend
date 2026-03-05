@@ -1,0 +1,58 @@
+import { createContext, useContext, useMemo } from "react";
+import { create } from "zustand";
+import _ThemeDark from "./themes/default-dark.json";
+import _ThemeLight from "./themes/default-light.json";
+import {
+  ThemeCompatibilityVersion,
+  ThemeDefinition,
+  ThemeScopes,
+  VariantsWithStaticColors
+} from "./types.js";
+import { buildVariants } from "./utils.js";
+
+const ThemeLight = _ThemeLight as ThemeDefinition;
+const ThemeDark = _ThemeDark as ThemeDefinition;
+
+type ThemeScope = {
+  colors: VariantsWithStaticColors<true>;
+  scope: keyof ThemeScopes;
+  isDark: boolean;
+};
+
+type ThemeEngineState = {
+  theme: ThemeDefinition;
+  setTheme: (theme: ThemeDefinition) => void;
+};
+const useThemeEngineStore = create<ThemeEngineState>((set) => ({
+  theme: globalThis.DEFAULT_THEME || ThemeLight,
+  setTheme: (theme) => set({ theme })
+}));
+
+const ThemeScopeContext = createContext<keyof ThemeScopes>("base");
+
+export function useThemeColors(scope?: keyof ThemeScopes): ThemeScope {
+  const currentScope = useCurrentThemeScope();
+  const theme = useThemeEngineStore((store) => store.theme);
+  const themeScope = useMemo(
+    () => theme.scopes[scope || currentScope] || theme.scopes.base,
+    [currentScope, scope, theme.scopes]
+  );
+
+  const currentTheme = useMemo(
+    () => ({
+      colors: buildVariants(scope || currentScope || "base", theme, themeScope),
+      isDark: theme.colorScheme === "dark",
+      scope: currentScope
+    }),
+    [themeScope, theme, scope, currentScope]
+  );
+
+  return currentTheme;
+}
+
+export const useCurrentThemeScope = () => useContext(ThemeScopeContext);
+export const ScopedThemeProvider = ThemeScopeContext.Provider;
+export const THEME_COMPATIBILITY_VERSION: ThemeCompatibilityVersion = 1;
+export { ThemeLight, ThemeDark, useThemeEngineStore, type ThemeEngineState };
+export { getPreviewColors, themeToCSS } from "./utils.js";
+export { validateTheme } from "./validator.js";

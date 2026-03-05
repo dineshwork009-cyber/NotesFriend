@@ -1,0 +1,204 @@
+import type { Database, Statement } from "better-sqlite3-multiple-ciphers";
+import type { QueryResult } from "@streetwriters/kysely";
+
+type SQLiteCompatibleType =
+  | number
+  | string
+  | Uint8Array
+  | Array<number>
+  | bigint
+  | null;
+
+export class SQLite {
+  sqlite?: Database;
+  initialized = false;
+  preparedStatements: Map<string, Statement<unknown[]>> = new Map();
+  retryCounter: Record<string, number> = {};
+  extensionsLoaded = false;
+
+  constructor() {
+    console.log("new sqlite worker");
+  }
+
+  async open(filePath: string) {
+    if (this.sqlite) {
+      console.error("Database is already initialized");
+      return;
+    }
+
+    this.sqlite = require("better-sqlite3-multiple-ciphers")(
+      filePath
+    ).unsafeMode(true);
+  }
+
+  /**
+   * Wrapper function for preparing SQL statements with caching
+   * to avoid unnecessary computations.
+   */
+  async prepare(sql: string): Promise<Statement | undefined> {
+    if (!this.sqlite) throw new Error("Database is not initialized.");
+    try {
+      const cached = this.preparedStatements.get(sql);
+      if (cached !== undefined) return cached;
+
+      const prepared = this.sqlite.prepare(sql);
+      if (!prepared) return;
+
+      this.preparedStatements.set(sql, prepared);
+
+      // reset retry count on success
+      this.retryCounter[sql] = 0;
+      return prepared;
+    } catch (ex) {
+      console.error(ex);
+
+      // statement prepare process can be flaky so retry at least 5 times
+      // before giving up.
+      if (this.retryCounter[sql] < 5) {
+        this.retryCounter[sql] = (this.retryCounter[sql] || 0) + 1;
+        console.warn("Failed to prepare statement. Retrying:", sql);
+        return this.prepare(sql);
+      } else this.retryCounter[sql] = 0;
+
+      if (ex instanceof Error) ex.message += ` (query: ${sql})`;
+      throw ex;
+    }
+  }
+
+  async exec<R>(
+    sql: string,
+    parameters: SQLiteCompatibleType[] = []
+  ): Promise<QueryResult<R>> {
+    const prepared = await this.prepare(sql);
+    if (!prepared) return { rows: [] };
+    try {
+      if (prepared.reader) {
+        return {
+          rows: prepared.all(parameters) as R[]
+        };
+      } else {
+        const { changes, lastInsertRowid } = prepared.run(parameters);
+        const numAffectedRows =
+          changes !== undefined && changes !== null && !isNaN(changes)
+            ? BigInt(changes)
+            : undefined;
+        return {
+          numAffectedRows,
+          insertId:
+            lastInsertRowid !== undefined && lastInsertRowid !== null
+              ? typeof lastInsertRowid === "bigint"
+                ? lastInsertRowid
+                : BigInt(lastInsertRowid)
+              : undefined,
+          rows: [] as R[]
+        };
+      }
+    } catch (e) {
+      if (e instanceof Error)
+        throw rewriteError(e, `${e.message} (query: ${sql})`);
+      throw e;
+    } finally {
+      // Since SQLite 3.48.0 (SQLite3MC v2.0.2) it's not possible to load fts5
+      // extensions before database has been decrypting. This is because
+      // executing a `SELECT` now accesses the underlying databases resulting in
+      // an error. Since FTS5 extensions depend on `SELECT fts5` to load the
+      // fts5 API, we must wait decrypt the database before we can load
+      // the extensions.
+      if (!this.extensionsLoaded && (await this.isDatabaseReady())) {
+        this.loadExtensions();
+      }
+    }
+  }
+
+  private loadExtensions() {
+    this.sqlite?.loadExtension(
+      getExtensionPath("sqlite-better-trigram", "better-trigram")
+    );
+    this.sqlite?.loadExtension(
+      getExtensionPath("sqlite3-fts5-html", "fts5-html")
+    );
+    this.extensionsLoaded = true;
+  }
+
+  async run<R>(
+    sql: string,
+    parameters?: SQLiteCompatibleType[]
+  ): Promise<QueryResult<R>> {
+    if (!this.sqlite) throw new Error("No database is not opened.");
+    return await this.exec(sql, parameters);
+  }
+
+  async close() {
+    if (!this.sqlite) return;
+
+    this.preparedStatements.clear();
+    this.sqlite.close();
+    this.sqlite = undefined;
+  }
+
+  async delete(filePath: string) {
+    await this.close();
+    await require("fs/promises").rm(filePath, {
+      force: true,
+      maxRetries: 5,
+      retryDelay: 500
+    });
+  }
+
+  /**
+   * This just executes `SELECT 1` on the database to make sure its ready.
+   * On an encrypted database, this will fail until `PRAGMA key` has been
+   * called.
+   */
+  private async isDatabaseReady() {
+    // return this.exec(`SELECT 1;`)
+    //   .then(() => true)
+    //   .catch(() => false);
+    if (!this.sqlite) return false;
+    try {
+      this.sqlite.prepare(`SELECT 1;`).run();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function getExtensionPath(extensionName: string, entryPoint: string) {
+  const path = require("path");
+  const { statSync } = require("fs");
+
+  const os = process.platform === "win32" ? "windows" : process.platform;
+  const packageName = `${extensionName}-${os}-${process.arch}`;
+  const extensionSuffix =
+    process.platform === "win32"
+      ? "dll"
+      : process.platform === "darwin"
+      ? "dylib"
+      : "so";
+  let loadablePath = path.join(
+    require.resolve(extensionName),
+    "..",
+    "..",
+    packageName,
+    `${entryPoint}.${extensionSuffix}`
+  );
+
+  if (loadablePath.includes(".asar"))
+    loadablePath = loadablePath
+      .replace("electron.asar", "app.asar")
+      .replace(".asar", ".asar.unpacked");
+
+  if (!statSync(loadablePath, { throwIfNoEntry: false })) {
+    throw new Error(`${extensionName} not found at ${loadablePath}.`);
+  }
+  return loadablePath;
+}
+
+function rewriteError(e: Error, message: string) {
+  const error = new Error(message);
+  error.stack = e.stack;
+  error.name = e.name;
+  error.cause = e.cause;
+  return error;
+}

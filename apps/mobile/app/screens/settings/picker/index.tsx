@@ -1,0 +1,159 @@
+import { useThemeColors } from "@notesfriend/theme";
+import React, { useRef, useState } from "react";
+import { View } from "react-native";
+import { Menu, MenuItem } from "react-native-material-menu";
+import Icon from "react-native-vector-icons/MaterialCommunityIcons";
+import { Dialog } from "../../../components/dialog";
+import { Pressable } from "../../../components/ui/pressable";
+import Paragraph from "../../../components/ui/typography/paragraph";
+import PremiumService from "../../../services/premium";
+import { getColorLinearShade } from "../../../utils/colors";
+import { defaultBorderRadius, AppFontSize } from "../../../utils/size";
+import { sleep } from "../../../utils/time";
+import { verifyUser } from "../functions";
+import { DefaultAppStyles } from "../../../utils/styles";
+
+interface PickerOptions<T> {
+  getValue: () => T;
+  updateValue: (item: T) => Promise<void>;
+  formatValue: (item: T) => any;
+  compareValue: (current: T, item: T) => boolean;
+  getItemKey: (item: T) => string;
+  options: T[];
+  isFeatureAvailable: () => Promise<boolean>;
+  isOptionAvailable: (item: T) => Promise<boolean>;
+  requiresVerification?: () => boolean;
+  onVerify?: () => Promise<boolean>;
+}
+
+export function SettingsPicker<T>({
+  getValue,
+  updateValue,
+  formatValue,
+  compareValue,
+  options,
+  getItemKey,
+  isFeatureAvailable,
+  isOptionAvailable,
+  requiresVerification = () => false,
+  onVerify
+}: PickerOptions<T>) {
+  const { colors, isDark } = useThemeColors("contextMenu");
+  const menuRef = useRef<any>(null);
+  const [width, setWidth] = useState(0);
+  const [currentValue, setCurrentValue] = useState(getValue());
+
+  const onChange = async (item: T) => {
+    if ((await isFeatureAvailable()) && (await isOptionAvailable(item))) {
+      menuRef.current?.hide();
+      await updateValue(item);
+      setCurrentValue(item);
+      return;
+    }
+
+    menuRef.current?.hide();
+    await updateValue(item);
+    setCurrentValue(item);
+  };
+
+  return (
+    <View
+      onLayout={(event) => {
+        setWidth(event.nativeEvent.layout.width);
+      }}
+      style={{
+        width: "100%"
+      }}
+    >
+      <Menu
+        ref={menuRef}
+        animationDuration={200}
+        style={{
+          borderRadius: defaultBorderRadius,
+          backgroundColor: colors.primary.background,
+          width: width,
+          marginTop: 60,
+          overflow: "hidden",
+          borderWidth: 0.7,
+          borderColor: getColorLinearShade(
+            colors.primary.background,
+            0.07,
+            isDark
+          )
+        }}
+        onRequestClose={() => {
+          menuRef.current?.hide();
+        }}
+        anchor={
+          <Pressable
+            onPress={async () => {
+              if (
+                (onVerify && !(await onVerify())) ||
+                !(await isFeatureAvailable())
+              )
+                return;
+              menuRef.current?.show();
+            }}
+            type="secondary"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              width: "100%",
+              justifyContent: "space-between",
+              paddingVertical: DefaultAppStyles.GAP_VERTICAL,
+              paddingHorizontal: DefaultAppStyles.GAP
+            }}
+          >
+            <Paragraph>{formatValue(currentValue)}</Paragraph>
+            <Icon
+              color={colors.primary.icon}
+              name="menu-down"
+              size={AppFontSize.md}
+            />
+          </Pressable>
+        }
+      >
+        <Dialog context="local" />
+
+        {options.map((item) => (
+          <MenuItem
+            key={getItemKey(item)}
+            onPress={async () => {
+              if (requiresVerification?.()) {
+                verifyUser("local", () => {
+                  onChange(item);
+                });
+              } else {
+                onChange(item);
+              }
+            }}
+            pressColor={colors.primary.hover}
+            style={{
+              backgroundColor: compareValue(currentValue, item)
+                ? colors.selected.background
+                : "transparent",
+              width: "100%",
+              maxWidth: width
+            }}
+            textStyle={{
+              fontSize: AppFontSize.sm,
+              fontFamily: "Inter-Regular",
+              color: compareValue(currentValue, item)
+                ? colors.primary.accent
+                : colors.primary.paragraph
+            }}
+          >
+            {formatValue(item)}
+          </MenuItem>
+        ))}
+      </Menu>
+    </View>
+  );
+}
+
+export function createSettingsPicker<T>(props: PickerOptions<T>) {
+  const Selector = () => {
+    return <SettingsPicker {...props} />;
+  };
+  return Selector;
+}

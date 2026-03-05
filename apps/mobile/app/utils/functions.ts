@@ -1,0 +1,199 @@
+import { ItemType } from "@notesfriend/core";
+import { strings } from "@notesfriend/intl";
+import { Linking } from "react-native";
+import { db } from "../common/database";
+import { presentDialog } from "../components/dialog/functions";
+import {
+  useSideMenuNotebookSelectionStore,
+  useSideMenuTagsSelectionStore
+} from "../components/side-menu/stores";
+import { eSendEvent, ToastManager } from "../services/event-manager";
+import Navigation from "../services/navigation";
+import { useMenuStore } from "../stores/use-menu-store";
+import { useNotebookStore } from "../stores/use-notebook-store";
+import { useRelationStore } from "../stores/use-relation-store";
+import { useTagStore } from "../stores/use-tag-store";
+import { eUpdateNoteInEditor } from "./events";
+import { unlockVault } from "./unlock-vault";
+
+export const valueLimiter = (value: number, min: number, max: number) => {
+  return value < min ? min : value > max ? max : value;
+};
+
+export function getObfuscatedEmail(email: string) {
+  if (!email) return "";
+  const [username, provider] = email.split("@");
+  if (username.length === 1) return `****@${provider}`;
+  return email.replace(/(.{3})(.*)(?=@)/, function (gp1, gp2, gp3) {
+    for (let i = 0; i < gp3.length; i++) {
+      gp2 += "*";
+    }
+    return gp2;
+  });
+}
+
+function confirmDeleteAllNotes(
+  items: string[],
+  type: "notebook",
+  context?: string
+) {
+  return new Promise<{ delete: boolean; deleteNotes: boolean }>((resolve) => {
+    presentDialog({
+      title: strings.doActions.delete.notebook(items.length),
+      positiveText: strings.delete(),
+      negativeText: strings.cancel(),
+      positivePress: async (_inputValue, value) => {
+        setTimeout(() => {
+          resolve({ delete: true, deleteNotes: value });
+        });
+      },
+      onClose: () => {
+        setTimeout(() => {
+          resolve({ delete: false, deleteNotes: false });
+        });
+      },
+      context: context,
+      check: {
+        info: strings.deleteContainingNotes(items.length),
+        type: "transparent"
+      }
+    });
+  });
+}
+
+async function deleteNotebook(id: string, deleteNotes: boolean) {
+  const notebook = await db.notebooks.notebook(id);
+  if (!notebook) return;
+  if (deleteNotes) {
+    const noteRelations = await db.relations.from(notebook, "note").get();
+    if (noteRelations?.length) {
+      await db.notes.moveToTrash(
+        ...noteRelations.map((relation) => relation.toId)
+      );
+    }
+  }
+  await db.notebooks.moveToTrash(id);
+}
+
+export const deleteItems = async (
+  type: ItemType,
+  itemIds: string[],
+  context?: string
+) => {
+  if (type === "reminder") {
+    await db.reminders.remove(...itemIds);
+    useRelationStore.getState().update();
+  } else if (type === "note") {
+    let someNotesLocked = false;
+
+    for (const id of itemIds) {
+      if (
+        await db.vaults.itemExists({
+          id: id,
+          type: "note"
+        })
+      ) {
+        someNotesLocked = true;
+        break;
+      }
+    }
+
+    if (someNotesLocked) {
+      const unlocked = await unlockVault({
+        title: strings.unlockVault(),
+        paragraph: strings.unlockVaultDesc(),
+        context: "global",
+        requirePassword: true
+      });
+      if (!unlocked) return;
+    }
+
+    for (const id of itemIds) {
+      if (db.monographs.isPublished(id)) {
+        ToastManager.show({
+          heading: strings.someNotesPublished(),
+          message: strings.unpublishToDelete(),
+          type: "error",
+          context: "global"
+        });
+        continue;
+      }
+
+      await db.notes.moveToTrash(id);
+
+      eSendEvent(
+        eUpdateNoteInEditor,
+        {
+          type: "trash",
+          id: id,
+          itemType: "note"
+        },
+        true
+      );
+    }
+  } else if (type === "notebook") {
+    const result = await confirmDeleteAllNotes(itemIds, "notebook", context);
+    if (!result.delete) return;
+    for (const id of itemIds) {
+      await deleteNotebook(id, result.deleteNotes);
+    }
+    useSideMenuNotebookSelectionStore.setState({
+      enabled: false,
+      selection: {}
+    });
+  } else if (type === "tag") {
+    presentDialog({
+      title: strings.doActions.delete.tag(itemIds.length),
+      positiveText: strings.delete(),
+      negativeText: strings.cancel(),
+      paragraph: strings.actionConfirmations.delete.tag(2),
+      positivePress: async () => {
+        await db.tags.remove(...itemIds);
+        useTagStore.getState().refresh();
+        useRelationStore.getState().update();
+        useSideMenuTagsSelectionStore.setState({
+          enabled: false,
+          selection: {}
+        });
+      },
+      context: context
+    });
+    return;
+  }
+
+  const deletedIds = [...itemIds];
+  if (type === "notebook" || type === "note") {
+    const message = strings.actions.movedToTrash[type](itemIds.length);
+    ToastManager.show({
+      heading: message,
+      type: "success",
+      func: async () => {
+        await db.trash.restore(...deletedIds);
+        Navigation.queueRoutesForUpdate();
+        useMenuStore.getState().setMenuPins();
+        useMenuStore.getState().setColorNotes();
+        ToastManager.hide();
+        if (type === "notebook") {
+          useNotebookStore.getState().refresh();
+        }
+      },
+      actionText: "Undo"
+    });
+  } else {
+    ToastManager.show({
+      heading: strings.actions.deleted.unknown(type, itemIds.length),
+      type: "success"
+    });
+  }
+
+  Navigation.queueRoutesForUpdate();
+  useMenuStore.getState().setColorNotes();
+  if (type === "notebook") {
+    useNotebookStore.getState().refresh();
+  }
+  useMenuStore.getState().setMenuPins();
+};
+
+export const openLinkInBrowser = async (link: string) => {
+  Linking.openURL(link);
+};

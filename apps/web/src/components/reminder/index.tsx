@@ -1,0 +1,155 @@
+import React from "react";
+import ListItem from "../list-item";
+import { Flex } from "@theme-ui/components";
+import {
+  Silent,
+  Vibrate,
+  Loud,
+  ReminderOff,
+  Clock,
+  Refresh,
+  Edit,
+  Reminders,
+  Trash
+} from "../icons";
+import IconTag from "../icon-tag";
+import { isReminderToday } from "@notesfriend/core";
+import { hashNavigate } from "../../navigation";
+import { Multiselect } from "../../common/multi-select";
+import { store } from "../../stores/reminder-store";
+import { db } from "../../common/db";
+import { getFormattedReminderTime } from "@notesfriend/common";
+import { MenuItem } from "@notesfriend/ui";
+import { Reminder as ReminderType } from "@notesfriend/core";
+import { ConfirmDialog } from "../../dialogs/confirm";
+import { EditReminderDialog } from "../../dialogs/add-reminder-dialog";
+import { useStore as useSelectionStore } from "../../stores/selection-store";
+import { strings } from "@notesfriend/intl";
+
+const RECURRING_MODE_MAP = {
+  week: "Weekly",
+  day: "Daily",
+  month: "Monthly",
+  year: "Yearly"
+} as const;
+
+const PRIORITY_ICON_MAP = {
+  silent: Silent,
+  vibrate: Vibrate,
+  urgent: Loud
+} as const;
+
+type ReminderProps = {
+  item: ReminderType;
+  compact?: boolean;
+};
+
+function Reminder(props: ReminderProps) {
+  const { item, compact } = props;
+  const reminder = item as unknown as ReminderType;
+  const PriorityIcon = PRIORITY_ICON_MAP[reminder.priority];
+  return (
+    <ListItem
+      item={item}
+      title={reminder.title}
+      body={compact ? undefined : reminder.description}
+      isDisabled={reminder.disabled}
+      isCompact={false}
+      onClick={() => EditReminderDialog.show({ reminderId: reminder.id })}
+      onKeyPress={async (e) => {
+        if (e.key === "Delete") {
+          await Multiselect.moveRemindersToTrash(
+            useSelectionStore.getState().selectedItems
+          );
+        }
+      }}
+      sx={
+        compact
+          ? {
+              borderRadius: "default"
+            }
+          : {}
+      }
+      footer={
+        <Flex
+          sx={{
+            alignItems: "center",
+            gap: 1,
+            mt: 1
+          }}
+        >
+          {reminder.disabled ? null : <PriorityIcon size={14} />}
+          {reminder.disabled ? (
+            <IconTag icon={ReminderOff} text={"Disabled"} testId={"disabled"} />
+          ) : (
+            <IconTag
+              icon={Clock}
+              text={getFormattedReminderTime(reminder)}
+              highlight={isReminderToday(reminder)}
+              testId={"reminder-time"}
+            />
+          )}
+          {reminder.mode === "repeat" && reminder.recurringMode && (
+            <IconTag
+              icon={Refresh}
+              text={RECURRING_MODE_MAP[reminder.recurringMode]}
+              testId={`recurring-mode`}
+            />
+          )}
+        </Flex>
+      }
+      menuItems={menuItems}
+    />
+  );
+}
+
+export default React.memo(Reminder, (prev, next) => {
+  return prev.item.dateModified === next.item.dateModified;
+});
+
+const menuItems: (reminder: ReminderType, items?: string[]) => MenuItem[] = (
+  reminder,
+  items = []
+) => {
+  return [
+    {
+      type: "button",
+      key: "edit",
+      title: strings.edit(),
+      icon: Edit.path,
+      onClick: () => hashNavigate(`/reminders/${reminder.id}/edit`)
+    },
+    {
+      type: "button",
+      key: "toggle",
+      title: reminder.disabled ? strings.activate() : strings.deactivate(),
+      icon: reminder.disabled ? Reminders.path : ReminderOff.path,
+      onClick: async () => {
+        await db.reminders.add({
+          id: reminder.id,
+          disabled: !reminder.disabled
+        });
+        await store.refresh();
+      }
+    },
+    { key: "sep", type: "separator" },
+    {
+      type: "button",
+      key: "delete",
+      title: strings.delete(),
+      variant: "dangerous",
+      icon: Trash.path,
+      onClick: async () => {
+        ConfirmDialog.show({
+          title: strings.doActions.delete.reminder(items.length),
+          message: strings.irreverisibleAction(),
+          positiveButtonText: strings.yes(),
+          negativeButtonText: strings.no()
+        }).then((result) => {
+          result && Multiselect.moveRemindersToTrash(items);
+        });
+      },
+      multiSelect: true
+    }
+  ];
+};

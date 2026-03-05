@@ -1,0 +1,57 @@
+import { ThemeDefinition, validateTheme } from "@notesfriend/theme";
+import { tryParse } from "@notesfriend/web/src/utils/parse";
+
+export async function loadThemeFromPullRequest(id: string) {
+  try {
+    //streetwriters/notesfriend-themes/3
+    const [owner, repo, pullRequestNumber] = id.split("/");
+    console.log(owner, repo, pullRequestNumber);
+    if (
+      !owner ||
+      !repo ||
+      !pullRequestNumber ||
+      owner !== "streetwriters" ||
+      repo !== "notesfriend-themes" ||
+      isNaN(parseInt(pullRequestNumber))
+    )
+      return null;
+
+    const files = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${pullRequestNumber}/files`
+    ).then((res) => (res.ok ? res.json() : []));
+    if (!files || !Array.isArray(files)) return null;
+
+    for (const file of files) {
+      if (file.filename?.endsWith("theme.json") && file.raw_url) {
+        return loadThemeFromURL(file.raw_url);
+      }
+    }
+    return null;
+  } catch (ex) {
+    console.error(ex);
+    return null;
+  }
+}
+
+export async function loadThemeFromURL(url: string) {
+  try {
+    return loadThemeFromJSON(
+      await fetch(`https://cors.notesfriend.com/${url}`).then((res) => res.json())
+    );
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
+export function loadThemeFromBase64(base64: string) {
+  return loadThemeFromJSON(
+    tryParse(Buffer.from(base64, "base64url").toString("utf-8"))
+  );
+}
+
+export function loadThemeFromJSON(themeJSON: any) {
+  const result = validateTheme(themeJSON);
+  if (result.error) return null;
+  return themeJSON as ThemeDefinition;
+}

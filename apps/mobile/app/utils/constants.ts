@@ -1,0 +1,111 @@
+import { SubscriptionPlan } from "@notesfriend/core";
+import { strings } from "@notesfriend/intl";
+import { Platform } from "react-native";
+import { getVersion } from "react-native-device-info";
+
+export const IOS_APPGROUPID = "group.org.streetwriters.notesfriend";
+export const FILE_SIZE_LIMIT = 500 * 1024 * 1024;
+export const IMAGE_SIZE_LIMIT = 50 * 1024 * 1024;
+
+export const BETA = getVersion().includes("beta");
+
+export const STORE_LINK =
+  Platform.OS === "ios"
+    ? "https://apps.apple.com/us/app/notesfriend/id1544027013"
+    : "https://play.google.com/store/apps/details?id=com.streetwriters.notesfriend";
+
+export const GROUP = {
+  default: "default",
+  none: "none",
+  abc: "abc",
+  year: "year",
+  week: "week",
+  month: "month"
+};
+
+export const SORT = {
+  dateModified: "Date modified",
+  dateEdited: "Date edited",
+  dateCreated: "Date created",
+  title: "Title",
+  dueDate: "Due date",
+  relevance: "Relevance"
+};
+
+export const itemSkus = [
+  "notesfriend.essential.monthly",
+  "notesfriend.essential.yearly",
+  "notesfriend.pro.monthly",
+  "notesfriend.pro.yearly",
+  "notesfriend.pro.monthly.tier2",
+  "notesfriend.pro.yearly.tier2",
+  "notesfriend.pro.monthly.tier3",
+  "notesfriend.pro.yearly.tier3",
+  "notesfriend.believer.monthly",
+  "notesfriend.believer.yearly",
+  "notesfriend.believer.5year"
+];
+
+export function planToDisplayName(plan: SubscriptionPlan): string {
+  switch (plan) {
+    case SubscriptionPlan.FREE:
+      return strings.freePlan();
+    case SubscriptionPlan.ESSENTIAL:
+      return strings.essentialPlan();
+    case SubscriptionPlan.LEGACY_PRO:
+    case SubscriptionPlan.PRO:
+      return strings.proPlan();
+    case SubscriptionPlan.BELIEVER:
+      return strings.believerPlan();
+    case SubscriptionPlan.EDUCATION:
+      return strings.educationPlan();
+    default:
+      return strings.freePlan();
+  }
+}
+
+export const SUBSCRIPTION_STATUS = {
+  BASIC: 0,
+  TRIAL: 1,
+  BETA: 2,
+  PREMIUM: 5,
+  PREMIUM_EXPIRED: 6,
+  PREMIUM_CANCELLED: 7
+};
+
+export const SUBSCRIPTION_STATUS_STRINGS = {
+  0: "Basic",
+  1: "Trial",
+  2: Platform.OS === "ios" ? "Pro" : "Beta",
+  5: "Pro",
+  6: "Expired",
+  7: "Pro (cancelled)"
+};
+
+export const SUBSCRIPTION_PROVIDER = {
+  0: null,
+  1: {
+    type: "iOS",
+    title: "Subscribed on iOS",
+    desc: "You subscribed to Notesfriend Pro on iOS using Apple In App Purchase. You can cancel anytime with your iTunes Account settings.",
+    icon: "ios"
+  },
+  2: {
+    type: "Android",
+    title: "Subscribed on Android",
+    desc: "You subscribed to Notesfriend Pro on Android Phone/Tablet using Google In App Purchase.",
+    icon: "android"
+  },
+  3: {
+    type: "Web",
+    title: "Subscribed on Web",
+    desc: "You subscribed to Notesfriend Pro on the Web/Desktop App.",
+    icon: "web"
+  }
+};
+
+export const EDITOR_LINE_HEIGHT = {
+  DEFAULT: 1.2,
+  MAX: 10,
+  MIN: 1
+};

@@ -1,0 +1,209 @@
+import { notesfriend } from "../test.ids";
+import { TestBuilder } from "./utils";
+
+describe("NOTEBOOKS", () => {
+  it("Create a notebook with title only", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", false)
+      .wait(500)
+      .isVisibleByText("Notebook 1")
+      .run();
+  });
+
+  it("Create a notebook with title & description", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .isVisibleByText("Notebook 1")
+      .run();
+  });
+
+  it("Add a sub notebook to a notebook", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapByText("Add notebook")
+      .createNotebook("Sub notebook", true)
+      .wait(500)
+      .waitAndTapById("expand-notebook-0")
+      .isVisibleByText("Sub notebook")
+      .longPressByText("Sub notebook")
+      .wait(500)
+      .waitAndTapByText("Move to trash")
+      .waitAndTapByText("Delete")
+      .isNotVisibleByText("Sub notebook")
+      .run();
+  });
+
+  it("Edit notebook", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapByText("Edit notebook")
+      .typeTextById(notesfriend.ids.dialogs.notebook.inputs.title, " (edited)")
+      .waitAndTapByText("Save")
+      .isVisibleByText("Notebook 1 (edited)")
+      .run();
+  });
+
+  it("Edit a sub notebook", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapByText("Add notebook")
+      .createNotebook("Sub notebook", true)
+      .wait(500)
+      .waitAndTapById("expand-notebook-0")
+      .longPressByText("Sub notebook")
+      .wait(500)
+      .waitAndTapByText("Edit notebook")
+      .typeTextById(notesfriend.ids.dialogs.notebook.inputs.title, " (edited)")
+      .waitAndTapByText("Save")
+      .isVisibleByText("Sub notebook (edited)")
+      .run();
+  });
+
+  it("Add a note to notebook", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .waitAndTapByText("Notebook 1")
+      .createNote()
+      .run();
+  });
+
+  it("Remove note from notebook", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .waitAndTapByText("Notebook 1")
+      .wait(500)
+      .createNote()
+      .saveResult()
+      .processResult(async (note) => {
+        await TestBuilder.create()
+          .longPressByText(note.body)
+          .wait(500)
+          .waitAndTapById("select-minus")
+          .wait(500)
+          .isNotVisibleByText(note.body)
+          .run();
+      })
+      .run();
+  });
+
+  it("Add/Remove note to notebook from home", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", true)
+      .wait(500)
+      .waitAndTapById("tab-home")
+      .waitAndTapByText("Notes")
+      .createNote()
+      .waitAndTapById(notesfriend.listitem.menu)
+      .wait(500)
+      .waitAndTapById("icon-notebooks")
+      .waitAndTapByText("Notebook 1")
+      .waitAndTapById("floating-save-button")
+      .isVisibleByText("Notebook 1")
+      .run();
+  });
+
+  it("Edit notebook title and description", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook()
+      .wait(500)
+      .isVisibleByText("Notebook 1")
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapByText("Edit notebook")
+      .typeTextById(notesfriend.ids.dialogs.notebook.inputs.title, " (Edited)")
+      .clearTextById(notesfriend.ids.dialogs.notebook.inputs.description)
+      .typeTextById(
+        notesfriend.ids.dialogs.notebook.inputs.description,
+        "Description of Notebook 1 (Edited)"
+      )
+      .waitAndTapByText("Save")
+      .isVisibleByText("Notebook 1 (Edited)")
+      .run();
+  });
+
+  it("Move notebook to trash", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", false)
+      .wait(500)
+      .isVisibleByText("Notebook 1")
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapByText("Move to trash")
+      .wait(500)
+      .waitAndTapByText("Delete")
+      .waitAndTapById("tab-home")
+      .waitAndTapByText("Trash")
+      .isVisibleByText("Notebook 1")
+      .run();
+  });
+
+  it("Pin notebook to side menu", async () => {
+    await TestBuilder.create()
+      .prepare()
+      .openSideMenu()
+      .waitAndTapById("tab-notebooks")
+      .waitAndTapById("sidebar-add-button")
+      .createNotebook("Notebook 1", false)
+      .wait(500)
+      .isVisibleByText("Notebook 1")
+      .longPressByText("Notebook 1")
+      .wait(500)
+      .waitAndTapById("icon-add-shortcut")
+      .wait(500)
+      .waitAndTapById("tab-home")
+      .isVisibleByText("Notebook 1")
+      .run();
+  });
+});

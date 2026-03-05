@@ -1,0 +1,128 @@
+import { databaseTest, noteTest, TEST_NOTE } from "./utils/index.js";
+import { test, expect, describe } from "vitest";
+
+function tag(title: string, dateCreated?: number) {
+  return { title, dateCreated };
+}
+
+function color(title: string) {
+  return { title, colorCode: "#ffff22" };
+}
+
+for (const type of ["tag", "color"] as const) {
+  const collection = type === "color" ? "colors" : "tags";
+  const item = type === "color" ? color : tag;
+
+  test(`${type} a note`, () =>
+    noteTest().then(async ({ db, id }) => {
+      const tagId = await db[collection].add(item("hello"));
+      await db.relations.add({ id: tagId, type }, { id, type: "note" });
+
+      expect((await db[collection][type](tagId)).title).toBe("hello");
+      expect(await db.relations.from({ id: tagId, type }, "note").count()).toBe(
+        1
+      );
+    }));
+
+  test(`${type} 2 notes`, () =>
+    noteTest().then(async ({ db, id }) => {
+      const id2 = await db.notes.add(TEST_NOTE);
+      if (!id2) throw new Error("Failed to create note.");
+
+      const tagId = await db[collection].add(item("hello"));
+      await db.relations.add({ id: tagId, type }, { id, type: "note" });
+      await db.relations.add({ id: tagId, type }, { id: id2, type: "note" });
+
+      expect((await db[collection][type](tagId)).title).toBe("hello");
+      expect(await db.relations.from({ id: tagId, type }, "note").count()).toBe(
+        2
+      );
+    }));
+
+  test(`rename a ${type}`, () =>
+    databaseTest().then(async (db) => {
+      const tagId = await db[collection].add(item("hello"));
+      await db[collection].add({ id: tagId, title: `hello (new)` });
+      expect((await db[collection][type](tagId)).title).toBe("hello (new)");
+    }));
+
+  test(`remove a ${type}`, () =>
+    noteTest().then(async ({ db, id }) => {
+      const tagId = await db[collection].add(item("hello"));
+      await db.relations.add({ id: tagId, type }, { id, type: "note" });
+      await db[collection].remove(tagId);
+
+      expect(await db[collection].collection.count()).toBe(0);
+      expect(await db.relations.from({ id: tagId, type }, "note").count()).toBe(
+        0
+      );
+    }));
+
+  test(`invalid characters from ${type} title are removed`, () =>
+    databaseTest().then(async (db) => {
+      const tagId = await db[collection].add(
+        item("    \n\n\n\t\t\thello          l\n\n\n\t\t       ")
+      );
+      expect((await db[collection][type](tagId)).title).toBe(
+        "hello          l"
+      );
+    }));
+
+  test(`remove a note from ${type}`, () =>
+    noteTest().then(async ({ db, id }) => {
+      const tagId = await db[collection].add(item("hello"));
+      await db.relations.add({ id: tagId, type }, { id, type: "note" });
+
+      await db.relations.unlink({ id: tagId, type }, { id, type: "note" });
+      expect(await db.relations.from({ id: tagId, type }, "note").count()).toBe(
+        0
+      );
+    }));
+}
+
+describe("sort tags by", () => {
+  const tags = ["apple", "mango", "melon", "orange", "zucchini"];
+  const sortTestCases = [
+    {
+      sortBy: "title",
+      sortDirection: "asc",
+      expectedOrder: ["apple", "mango", "melon", "orange", "zucchini"]
+    },
+    {
+      sortBy: "title",
+      sortDirection: "desc",
+      expectedOrder: ["zucchini", "orange", "melon", "mango", "apple"]
+    },
+    {
+      sortBy: "dateCreated",
+      sortDirection: "asc",
+      expectedOrder: ["apple", "mango", "melon", "orange", "zucchini"]
+    },
+    {
+      sortBy: "dateCreated",
+      sortDirection: "desc",
+      expectedOrder: ["zucchini", "orange", "melon", "mango", "apple"]
+    }
+  ] as const;
+  for (const testCase of sortTestCases) {
+    test(`${testCase.sortBy} ${testCase.sortDirection}`, () =>
+      databaseTest().then(async (db) => {
+        let previousCreatedDate = Date.now();
+        for (const title of tags) {
+          await db.tags.add(tag(title, previousCreatedDate++));
+        }
+
+        const items = await db.tags.all.grouped({
+          sortBy: testCase.sortBy,
+          sortDirection: testCase.sortDirection,
+          groupBy: "default"
+        });
+
+        for (let i = 0; i < testCase.expectedOrder.length; i++) {
+          expect((await items.item(i)).item?.title).toEqual(
+            testCase.expectedOrder[i]
+          );
+        }
+      }));
+  }
+});

@@ -1,0 +1,176 @@
+import { getCurrentHash, getCurrentPath, makeURL } from "./navigation";
+import Config from "./utils/config";
+import type { AuthProps } from "./views/auth";
+import {
+  initializeFeatureChecks,
+  isFeatureSupported
+} from "./utils/feature-check";
+import { initializeLogger } from "./utils/logger";
+import { shouldShowWrapped } from "./utils/should-show-wrapped";
+
+type Route<TProps = null> = {
+  component: () => Promise<{
+    default: TProps extends null
+      ? () => JSX.Element
+      : (props: TProps) => JSX.Element;
+  }>;
+  props: TProps | null;
+};
+
+type RouteWithPath<T = null> = {
+  route: Route<T>;
+  path: Routes;
+};
+
+export type Routes = keyof typeof routes;
+// | "/account/recovery"
+// | "/account/verified"
+// | "/signup"
+// | "/login"
+// | "/sessionexpired"
+// | "/recover"
+// | "/mfa/code"
+// | "/mfa/select"
+// | "default";
+
+const routes = {
+  "/plans": {
+    component: () => import("./views/plans")
+  },
+  "/wrapped": {
+    component: () => import("./views/wrapped")
+  },
+  "/checkout": {
+    component: () => import("./views/checkout")
+  },
+  "/payments": {
+    component: () => import("./views/payments"),
+    props: {}
+  },
+  "/account/recovery": {
+    component: () => import("./views/recovery"),
+    props: { route: "methods" }
+  },
+  "/account/verified": {
+    component: () => import("./views/email-confirmed"),
+    props: {}
+  },
+  "/signup": {
+    component: () => import("./views/auth"),
+    props: { route: "signup" }
+  },
+  "/sessionexpired": {
+    component: () => import("./views/auth"),
+    props: { route: "sessionExpiry" }
+  },
+  "/login": {
+    component: () => import("./views/auth"),
+    props: { route: "login:email" }
+  },
+  "/login/password": {
+    component: () => import("./views/auth"),
+    props: { route: "login:email" }
+  },
+  "/recover": {
+    component: () => import("./views/auth"),
+    props: { route: "recover" }
+  },
+  "/login/mfa/code": {
+    component: () => import("./views/auth"),
+    props: { route: "login:email" }
+  },
+  "/login/mfa/select": {
+    component: () => import("./views/auth"),
+    props: { route: "login:email" }
+  },
+  default: { component: () => import("./app"), props: null }
+} as const;
+
+const sessionExpiryExceptions: Routes[] = [
+  "/payments",
+  "/recover",
+  "/account/recovery",
+  "/sessionexpired",
+  "/login/mfa/code",
+  "/login/mfa/select",
+  "/login/password"
+];
+
+function getRoute(): RouteWithPath<AuthProps> | RouteWithPath {
+  const path = getCurrentPath() as Routes;
+  // logger.info(`Getting route for path: ${path}`);
+
+  const signup = redirectToRegistration(path);
+  const sessionExpired = isSessionExpired(path);
+  const fallback = fallbackRoute();
+  const route = (
+    routes[path] ? { route: routes[path], path } : null
+  ) as RouteWithPath<AuthProps> | null;
+
+  if (route?.path === "/wrapped" && !shouldShowWrapped())
+    return {
+      route: routes.default,
+      path: "default"
+    };
+
+  return signup || sessionExpired || route || fallback;
+}
+
+function fallbackRoute(): RouteWithPath {
+  return { route: routes.default, path: "default" };
+}
+
+function redirectToRegistration(path: Routes): RouteWithPath<AuthProps> | null {
+  if (!IS_TESTING && !shouldSkipInitiation() && !routes[path]) {
+    window.history.replaceState({}, "", makeURL("/signup", getCurrentHash()));
+    return { route: routes["/signup"], path: "/signup" };
+  }
+  return null;
+}
+
+function isSessionExpired(path: Routes): RouteWithPath<AuthProps> | null {
+  const isSessionExpired = Config.get("sessionExpired", false);
+  if (isSessionExpired && !sessionExpiryExceptions.includes(path)) {
+    // logger.info(`User session has expired. Routing to /sessionexpired`);
+
+    window.history.replaceState(
+      {},
+      "",
+      makeURL("/sessionexpired", getCurrentHash())
+    );
+    return { route: routes["/sessionexpired"], path: "/sessionexpired" };
+  }
+  return null;
+}
+
+function checkPrerequisites() {
+  if (!window.isSecureContext)
+    throw new Error("Please run Notesfriend in a secure (https) context.");
+  if (!navigator.locks)
+    throw new Error("Your browser does not support the Web Locks API.");
+  if (!crypto.subtle)
+    throw new Error("Your browser does not support the SubtleCrypto API.");
+  if (!window.indexedDB && !isFeatureSupported("opfs"))
+    throw new Error("Your browser does not support IndexedDB or OPFS.");
+  if (!window.WebAssembly)
+    throw new Error("Your browser does not support WebAssembly.");
+}
+
+export async function init() {
+  await initializeFeatureChecks();
+
+  checkPrerequisites();
+
+  const { path, route } = getRoute();
+
+  const [{ default: Component }] = await Promise.all([
+    route.component(),
+    initializeLogger()
+  ]);
+
+  return { Component, path, props: route.props };
+}
+
+function shouldSkipInitiation() {
+  return IS_THEME_BUILDER || localStorage.getItem("skipInitiation") || false;
+}

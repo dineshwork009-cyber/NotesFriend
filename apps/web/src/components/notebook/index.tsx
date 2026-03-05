@@ -1,0 +1,272 @@
+import ListItem from "../list-item";
+import { Button, Flex, Text } from "@theme-ui/components";
+import { useStore as useNotesStore } from "../../stores/note-store";
+import { Notebook as NotebookType } from "@notesfriend/core";
+import {
+  ChevronDown,
+  ChevronRight,
+  NotebookEdit,
+  Plus,
+  RemoveShortcutLink,
+  Shortcut,
+  Trash,
+  Notebook as NotebookIcon,
+  ArrowUp,
+  Move
+} from "../icons";
+import { MenuItem } from "@notesfriend/ui";
+import { hashNavigate, navigate } from "../../navigation";
+import { useRef } from "react";
+import { handleDrop } from "../../common/drop-handler";
+import { useDragHandler } from "../../hooks/use-drag-handler";
+import { AddNotebookDialog } from "../../dialogs/add-notebook-dialog";
+import { useStore as useSelectionStore } from "../../stores/selection-store";
+import { store as appStore } from "../../stores/app-store";
+import { Multiselect } from "../../common/multi-select";
+import { strings } from "@notesfriend/intl";
+import { db } from "../../common/db";
+import {
+  createSetDefaultHomepageMenuItem,
+  withFeatureCheck
+} from "../../common";
+import { useStore as useNotebookStore } from "../../stores/notebook-store";
+import { MoveNotebookDialog } from "../../dialogs/move-notebook-dialog";
+import { areFeaturesAvailable } from "@notesfriend/common";
+
+type NotebookProps = {
+  item: NotebookType;
+  totalNotes?: number;
+  isExpandable?: boolean;
+  isExpanded?: boolean;
+  expand?: () => void;
+  collapse?: () => void;
+  refresh?: () => void;
+  depth?: number;
+};
+export function Notebook(props: NotebookProps) {
+  const {
+    item,
+    totalNotes = 0,
+    isExpandable = false,
+    isExpanded = false,
+    expand = () => {},
+    collapse = () => {},
+    refresh = () => {},
+    depth = 0
+  } = props;
+  const currentContext = useNotesStore((store) =>
+    store.context?.type === "notebook" && store.context.id === item.id
+      ? store.contextNotes
+      : null
+  );
+  const isOpened = !!currentContext;
+  const dragTimeout = useRef(0);
+  const { isDragEntering, isDragLeaving } = useDragHandler(`id_${item.id}`);
+
+  return (
+    <ListItem
+      draggable
+      isFocused={isOpened}
+      isCompact
+      item={item}
+      onClick={() => navigate(`/notebooks/${item.id}`)}
+      onDragEnter={(e) => {
+        if (!isDragEntering(e)) return;
+        e.currentTarget.focus();
+
+        dragTimeout.current = setTimeout(() => {
+          expand();
+        }, 700) as unknown as number;
+      }}
+      onDragLeave={(e) => {
+        if (!isDragLeaving(e)) return;
+        clearTimeout(dragTimeout.current);
+      }}
+      onDrop={async (e) => {
+        clearTimeout(dragTimeout.current);
+        handleDrop(e.dataTransfer, item);
+      }}
+      onKeyPress={async (e) => {
+        if (e.code === "Space") {
+          e.stopPropagation();
+          if (isExpandable) isExpanded ? collapse() : expand();
+          else navigate(`/notebooks/${item.id}`);
+        } else if (e.code === "Delete") {
+          e.stopPropagation();
+          await Multiselect.moveNotebooksToTrash(
+            useSelectionStore.getState().selectedItems
+          );
+        }
+      }}
+      title={
+        <Flex
+          sx={{ alignItems: "center", justifyContent: "center", gap: "small" }}
+        >
+          {isExpandable ? (
+            <Button
+              variant="secondary"
+              sx={{ bg: "transparent", p: 0, borderRadius: 100 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                isExpanded ? collapse() : expand();
+              }}
+            >
+              {isExpanded ? (
+                <ChevronDown
+                  size={14}
+                  color={isOpened ? "icon-selected" : "icon"}
+                />
+              ) : (
+                <ChevronRight
+                  size={14}
+                  color={isOpened ? "icon-selected" : "icon"}
+                />
+              )}
+            </Button>
+          ) : (
+            <NotebookIcon
+              size={14}
+              color={isOpened ? "icon-selected" : "icon"}
+            />
+          )}
+          <Text
+            data-test-id={`title`}
+            variant={"body"}
+            color={isOpened ? "paragraph-selected" : "paragraph"}
+            sx={{
+              whiteSpace: "pre",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              fontWeight: "body",
+              display: "block"
+            }}
+          >
+            {item.title}
+          </Text>
+        </Flex>
+      }
+      footer={
+        <Text variant="subBody">
+          {currentContext ? currentContext?.length : totalNotes}
+        </Text>
+      }
+      menuItems={notebookMenuItems}
+      context={{ refresh, isRoot: depth === 0 }}
+      sx={{
+        mb: "small",
+        borderRadius: "default",
+        paddingLeft: `${5 + (depth === 0 ? 0 : 15 * depth)}px`
+      }}
+    />
+  );
+}
+
+export const notebookMenuItems: (
+  notebook: NotebookType,
+  ids?: string[],
+  context?: { refresh?: () => void; isRoot?: boolean }
+) => Promise<MenuItem[]> = async (notebook, ids = [], context) => {
+  const defaultNotebook = db.settings.getDefaultNotebook();
+  const features = await areFeaturesAvailable([
+    "shortcuts",
+    "defaultNotebookAndTag",
+    "customHomepage"
+  ]);
+  return [
+    {
+      type: "button",
+      key: "add",
+      title: strings.newNotebook(),
+      icon: Plus.path,
+      onClick: () =>
+        AddNotebookDialog.show({ parentId: notebook.id }).then((res) =>
+          res ? context?.refresh?.() : null
+        )
+    },
+    { type: "separator", key: "sep0" },
+    {
+      type: "button",
+      key: "edit",
+      title: strings.edit(),
+      icon: NotebookEdit.path,
+      onClick: () => hashNavigate(`/notebooks/${notebook.id}/edit`)
+    },
+    {
+      type: "button",
+      key: "set-as-default",
+      title: strings.setAsDefault(),
+      isChecked: defaultNotebook === notebook.id,
+      icon: NotebookIcon.path,
+      premium: !features.defaultNotebookAndTag.isAllowed,
+      onClick: withFeatureCheck(features.defaultNotebookAndTag, async () => {
+        const defaultNotebook = db.settings.getDefaultNotebook();
+        const isDefault = defaultNotebook === notebook.id;
+        await db.settings.setDefaultNotebook(
+          isDefault ? undefined : notebook.id
+        );
+      })
+    },
+    createSetDefaultHomepageMenuItem(
+      notebook.id,
+      notebook.type,
+      features.customHomepage
+    ),
+    {
+      type: "button",
+      key: "shortcut",
+      icon: db.shortcuts.exists(notebook.id)
+        ? RemoveShortcutLink.path
+        : Shortcut.path,
+      title: db.shortcuts.exists(notebook.id)
+        ? strings.removeShortcut()
+        : strings.addShortcut(),
+      premium: !features.shortcuts.isAllowed,
+      onClick: withFeatureCheck(features.shortcuts, () =>
+        appStore.addToShortcuts(notebook)
+      )
+    },
+    { key: "sep1", type: "separator" },
+    {
+      type: "button",
+      key: "move",
+      icon: Move.path,
+      title: strings.move(),
+      onClick: () => {
+        MoveNotebookDialog.show({ notebook: notebook });
+      }
+    },
+    {
+      type: "button",
+      key: "move-to-top",
+      icon: ArrowUp.path,
+      title: strings.moveToTop(),
+      isHidden: context?.isRoot,
+      onClick: async () => {
+        if (context?.isRoot) return;
+
+        const parentId = await db.notebooks.parentId(notebook.id);
+        if (!parentId) return;
+
+        await db.relations.unlink(
+          {
+            type: "notebook",
+            id: parentId
+          },
+          notebook
+        );
+        await useNotebookStore.getState().refresh();
+      },
+      multiSelect: false
+    },
+    { key: "sep2", type: "separator" },
+    {
+      type: "button",
+      key: "movetotrash",
+      title: strings.moveToTrash(),
+      variant: "dangerous",
+      icon: Trash.path,
+      onClick: () => Multiselect.moveNotebooksToTrash(ids),
+      multiSelect: true
+    }
+  ];
+};

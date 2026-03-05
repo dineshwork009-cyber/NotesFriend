@@ -1,0 +1,84 @@
+import { ThemeUIStyleObject } from "@theme-ui/core";
+
+const defaultVariant: ThemeUIStyleObject = {
+  borderRadius: "default",
+  border: "none",
+  width: "auto",
+  mx: "2px",
+  outline: "1.5px solid var(--border)",
+  fontFamily: "body",
+  fontWeight: "body",
+  fontSize: "input",
+  color: "paragraph",
+  ":-webkit-autofill": {
+    WebkitTextFillColor: "var(--paragraph)",
+    caretColor: "var(--paragraph)",
+    fontSize: "inherit"
+  },
+  ":focus": {
+    outline: "2px solid var(--accent)"
+  },
+  ":hover:not(:focus)": {
+    outline: "1.5px solid var(--accent)"
+  },
+  "::placeholder": {
+    color: "placeholder"
+  }
+};
+
+const borderless: ThemeUIStyleObject = {
+  variant: "forms.input",
+  outline: "none",
+  boxShadow: "none",
+  ":-webkit-autofill": {
+    WebkitTextFillColor: "var(--paragraph)",
+    caretColor: "var(--paragraph)",
+    fontSize: "inherit"
+  },
+  ":focus": {
+    bg: "var(--background-secondary)"
+  },
+  ":hover:not(:focus)": {
+    outline: "var(--background-secondary)"
+  },
+  "::placeholder": {
+    color: "placeholder"
+  }
+};
+
+const clean: ThemeUIStyleObject = {
+  variant: "forms.input",
+  outline: "none",
+  boxShadow: "none",
+  ":focus": {
+    boxShadow: "none"
+  },
+  ":hover:not(:focus)": {
+    boxShadow: "none"
+  }
+};
+
+const error: ThemeUIStyleObject = {
+  variant: "forms.input",
+  outline: "1.5px solid var(--accent-error)",
+  ":focus": {
+    outline: "2px solid var(--accent-error)"
+  },
+  ":hover:not(:focus)": {
+    outline: "1.5px solid var(--accent-error)"
+  }
+};
+
+const radio: ThemeUIStyleObject = {
+  "input:focus ~ &": {
+    backgroundColor: `border-secondary`
+  }
+};
+
+export const inputVariants = {
+  input: defaultVariant,
+  borderless,
+  error,
+  clean,
+  radio
+};

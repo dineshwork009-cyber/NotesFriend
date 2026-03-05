@@ -1,0 +1,217 @@
+import { createBackup, verifyAccount, importBackup } from "../../common";
+import { db } from "../../common/db";
+import { exportNotes } from "../../common/export";
+import { SettingsGroup } from "./types";
+import { strings } from "@notesfriend/intl";
+import { useStore as useSettingStore } from "../../stores/setting-store";
+import { useStore as useAppStore } from "../../stores/app-store";
+import { useStore as useUserStore } from "../../stores/user-store";
+import { desktop } from "../../common/desktop-bridge";
+import { PATHS } from "@notesfriend/desktop";
+
+const getDesktopBackupsDirectoryPath = () =>
+  useSettingStore.getState().backupStorageLocation || PATHS.backupsDirectory;
+
+export const BackupExportSettings: SettingsGroup[] = [
+  {
+    key: "backup",
+    section: "backup-export",
+    header: strings.backups(),
+    settings: [
+      {
+        key: "create-backup",
+        title: strings.backupNow(),
+        description: strings.backupNowDesc(),
+        components: [
+          {
+            type: "dropdown",
+            options: [
+              { value: "-", title: strings.chooseBackupFormat() },
+              { value: "partial", title: strings.backup() },
+              { value: "full", title: strings.backupWithAttachments() }
+            ],
+            selectedOption: () => "-",
+            onSelectionChanged: async (value) => {
+              if (value === "-") return;
+              await createBackup({
+                mode: value === "partial" ? "partial" : "full"
+              });
+            }
+          }
+        ]
+      },
+      {
+        key: "restore-backup",
+        title: strings.restoreBackup(),
+        description: strings.restoreBackupDesc(),
+        components: [
+          {
+            type: "button",
+            title: "Restore",
+            action: async () => {
+              if (await importBackup()) {
+                await useAppStore.getState().refresh();
+              }
+            },
+            variant: "secondary"
+          }
+        ]
+      },
+      {
+        key: "auto-backup",
+        title: strings.automaticBackups(),
+        description: strings.automaticBackupsDesc(),
+        onStateChange: (listener) =>
+          useSettingStore.subscribe((s) => s.backupReminderOffset, listener),
+        components: [
+          {
+            type: "dropdown",
+            options: [
+              { value: "0", title: strings.never() },
+              { value: "1", title: strings.daily() },
+              { value: "2", title: strings.weekly() },
+              { value: "3", title: strings.monthly() }
+            ],
+            selectedOption: () =>
+              useSettingStore.getState().backupReminderOffset.toString(),
+            onSelectionChanged: async (value) => {
+              const verified =
+                useSettingStore.getState().encryptBackups ||
+                (await verifyAccount());
+              if (verified)
+                useSettingStore
+                  .getState()
+                  .setBackupReminderOffset(parseInt(value));
+            }
+          }
+        ]
+      },
+      {
+        key: "auto-backup-with-attachments",
+        title: strings.automaticBackupsWithAttachments(),
+        description: strings.automaticBackupsWithAttachmentsDesc().join("\n\n"),
+        onStateChange: (listener) =>
+          useSettingStore.subscribe(
+            (s) => s.fullBackupReminderOffset,
+            listener
+          ),
+        components: [
+          {
+            type: "dropdown",
+            options: [
+              { value: "0", title: strings.never() },
+              { value: "1", title: strings.weekly() },
+              { value: "2", title: strings.monthly() }
+            ],
+            selectedOption: () =>
+              useSettingStore.getState().fullBackupReminderOffset.toString(),
+            onSelectionChanged: async (value) => {
+              const verified =
+                useSettingStore.getState().encryptBackups ||
+                (await verifyAccount());
+              if (verified)
+                useSettingStore
+                  .getState()
+                  .setFullBackupReminderOffset(parseInt(value));
+            }
+          }
+        ]
+      },
+      {
+        key: "encrypt-backups",
+        title: strings.backupEncryption(),
+        description: strings.backupEncryptionDesc(),
+        isHidden: () => !useUserStore.getState().isLoggedIn,
+        onStateChange: (listener) => {
+          const subscriptions = [
+            useUserStore.subscribe((s) => s.isLoggedIn, listener),
+            useSettingStore.subscribe((s) => s.encryptBackups, listener)
+          ];
+          return () => subscriptions.forEach((s) => s());
+        },
+        components: [
+          {
+            type: "toggle",
+            isToggled: () =>
+              !!useUserStore.getState().isLoggedIn &&
+              useSettingStore.getState().encryptBackups,
+            toggle: async () => {
+              const verified =
+                !useSettingStore.getState().encryptBackups ||
+                (await verifyAccount());
+              if (verified) useSettingStore.getState().toggleEncryptBackups();
+            }
+          }
+        ]
+      },
+      {
+        key: "backup-directory",
+        title: strings.selectBackupDir(),
+        description: () =>
+          strings
+            .selectBackupDirDesc(getDesktopBackupsDirectoryPath())
+            .join("\n\n"),
+        isHidden: () => !IS_DESKTOP_APP,
+        components: [
+          {
+            type: "button",
+            title: strings.select(),
+            action: async () => {
+              const verified =
+                useSettingStore.getState().encryptBackups ||
+                (await verifyAccount());
+              if (!verified) return;
+
+              const backupStorageLocation = getDesktopBackupsDirectoryPath();
+              const location = await desktop?.integration.selectDirectory.query(
+                {
+                  title: strings.selectBackupDir(),
+                  defaultPath: backupStorageLocation
+                }
+              );
+              if (!location) return;
+              useSettingStore.getState().setBackupStorageLocation(location);
+            },
+            variant: "secondary"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    key: "export",
+    section: "backup-export",
+    header: strings.export(),
+    settings: [
+      {
+        key: "export-notes",
+        title: strings.exportAllNotes(),
+        description: strings.exportAllNotesDesc(),
+        components: [
+          {
+            type: "dropdown",
+            options: [
+              { value: "-", title: strings.exportAs() },
+              { value: "txt", title: "Text" },
+              { value: "md", title: "Markdown" },
+              {
+                value: "md-frontmatter",
+                title: "Markdown + Frontmatter"
+              },
+              { value: "html", title: "HTML" }
+            ],
+            selectedOption: () => "-",
+            onSelectionChanged: async (value) => {
+              if (!db.notes || value === "-") return;
+              if (await verifyAccount())
+                await exportNotes(
+                  value as "txt" | "md" | "html" | "md-frontmatter",
+                  db.notes.exportable
+                );
+            }
+          }
+        ]
+      }
+    ]
+  }
+];

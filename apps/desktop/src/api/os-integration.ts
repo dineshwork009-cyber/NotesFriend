@@ -1,0 +1,278 @@
+import { initTRPC } from "@trpc/server";
+import { z } from "zod";
+import {
+  app,
+  dialog,
+  Menu,
+  MenuItem,
+  nativeImage,
+  nativeTheme,
+  Notification,
+  shell
+} from "electron";
+import { AutoLaunch } from "../utils/autolaunch";
+import { config, DesktopIntegration } from "../utils/config";
+import { bringToFront } from "../utils/bring-to-front";
+import { getTheme, setTheme, Theme } from "../utils/theme";
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname } from "path";
+import { resolvePath } from "../utils/resolve-path";
+import { observable } from "@trpc/server/observable";
+import { AssetManager } from "../utils/asset-manager";
+import { isFlatpak, isSnap } from "../utils";
+import { setupDesktopIntegration } from "../utils/desktop-integration";
+import { rm } from "fs/promises";
+import { disableCustomDns, enableCustomDns } from "../utils/custom-dns";
+import type { MenuItem as NNMenuItem } from "@notesfriend/ui";
+
+const t = initTRPC.create();
+
+const NotificationOptions = z.object({
+  title: z.string().optional(),
+  body: z.string().optional(),
+  silent: z.boolean().optional(),
+  timeoutType: z.union([z.literal("default"), z.literal("never")]).optional(),
+  urgency: z
+    .union([z.literal("normal"), z.literal("critical"), z.literal("low")])
+    .optional(),
+  tag: z.string()
+});
+
+export const osIntegrationRouter = t.router({
+  isFlatpak: t.procedure.query(() => isFlatpak()),
+  isSnap: t.procedure.query(() => isSnap()),
+
+  zoomFactor: t.procedure.query(() => config.zoomFactor),
+  setZoomFactor: t.procedure.input(z.number()).mutation(({ input: factor }) => {
+    globalThis.window?.webContents.setZoomFactor(factor);
+    config.zoomFactor = factor;
+  }),
+
+  customDns: t.procedure.query(() => config.customDns),
+  setCustomDns: t.procedure
+    .input(z.boolean().optional())
+    .mutation(({ input: customDns }) => {
+      if (customDns) enableCustomDns();
+      else disableCustomDns();
+      config.customDns = !!customDns;
+    }),
+
+  proxyRules: t.procedure.query(() => config.proxyRules),
+  setProxyRules: t.procedure
+    .input(z.string().optional())
+    .mutation(({ input: proxyRules }) => {
+      globalThis.window?.webContents.session.setProxy({ proxyRules });
+      config.proxyRules = proxyRules || "";
+    }),
+
+  privacyMode: t.procedure.query(() => config.privacyMode),
+  setPrivacyMode: t.procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input: { enabled } }) => {
+      if (!globalThis.window || !["win32", "darwin"].includes(process.platform))
+        return;
+
+      globalThis.window.setContentProtection(enabled);
+
+      if (process.platform === "win32") {
+        globalThis.window.setThumbnailClip(
+          enabled
+            ? { x: 0, y: 0, width: 1, height: 1 }
+            : { x: 0, y: 0, width: 0, height: 0 }
+        );
+      }
+      config.privacyMode = enabled;
+    }),
+
+  desktopIntegration: t.procedure.query(() => config.desktopSettings),
+  setDesktopIntegration: t.procedure
+    .input(DesktopIntegration)
+    .mutation(({ input: settings }) => {
+      if (settings.autoStart) {
+        AutoLaunch.enable(!!settings.startMinimized);
+      } else {
+        AutoLaunch.disable();
+      }
+      config.desktopSettings = settings;
+      setupDesktopIntegration(settings);
+    }),
+
+  selectDirectory: t.procedure
+    .input(
+      z.object({
+        title: z.string().optional(),
+        buttonLabel: z.string().optional(),
+        defaultPath: z.string().optional()
+      })
+    )
+    .query(async ({ input }) => {
+      if (!globalThis.window) return undefined;
+
+      const { title, buttonLabel, defaultPath } = input;
+
+      const result = await dialog.showOpenDialog(globalThis.window, {
+        title,
+        buttonLabel,
+        properties: ["openDirectory"],
+        defaultPath: defaultPath && resolvePath(defaultPath)
+      });
+      if (result.canceled) return undefined;
+
+      return result.filePaths[0];
+    }),
+
+  saveFile: t.procedure
+    .input(z.object({ data: z.string(), filePath: z.string() }))
+    .query(({ input }) => {
+      const { data, filePath } = input;
+      if (!data || !filePath) return;
+
+      const resolvedPath = resolvePath(filePath);
+
+      mkdirSync(dirname(resolvedPath), { recursive: true });
+      writeFileSync(resolvedPath, data);
+    }),
+
+  resolvePath: t.procedure
+    .input(z.object({ filePath: z.string() }))
+    .query(({ input }) => {
+      const { filePath } = input;
+      return resolvePath(filePath);
+    }),
+
+  deleteFile: t.procedure.input(z.string()).query(async ({ input }) => {
+    await rm(input);
+  }),
+
+  restart: t.procedure.query(() => {
+    app.relaunch();
+    app.exit();
+  }),
+  showNotification: t.procedure
+    .input(NotificationOptions)
+    .query(({ input }) => {
+      const notification = new Notification({
+        ...input,
+        icon: AssetManager.appIcon({
+          size: 64,
+          format: process.platform === "win32" ? "ico" : "png"
+        })
+      });
+      notification.show();
+      if (input.urgency === "critical") {
+        shell.beep();
+      }
+
+      return new Promise((resolve) => {
+        notification.once("close", () => resolve(undefined));
+        notification.once("click", () => resolve(input.tag));
+      });
+    }),
+  openPath: t.procedure
+    .input(z.object({ type: z.literal("path"), link: z.string() }))
+    .query(({ input }) => {
+      const { type, link } = input;
+      if (type === "path") return shell.openPath(resolvePath(link));
+    }),
+  bringToFront: t.procedure.query(() => bringToFront()),
+  changeTheme: t.procedure
+    .input(
+      z.object({
+        theme: Theme,
+        windowControlsIconColor: z.string().optional(),
+        backgroundColor: z.string().optional()
+      })
+    )
+    .mutation(
+      ({ input: { theme, windowControlsIconColor, backgroundColor } }) => {
+        if (windowControlsIconColor) {
+          config.windowControlsIconColor = windowControlsIconColor;
+          if (
+            process.platform === "win32" &&
+            !config.desktopSettings.nativeTitlebar
+          )
+            globalThis.window?.setTitleBarOverlay({
+              symbolColor: windowControlsIconColor
+            });
+        }
+
+        if (backgroundColor) {
+          config.backgroundColor = backgroundColor;
+        }
+
+        setTheme(theme);
+      }
+    ),
+
+  onThemeChanged: t.procedure.subscription(() =>
+    observable<"dark" | "light">((emit) => {
+      const updated = () => {
+        if (getTheme() === "system") {
+          emit.next(nativeTheme.shouldUseDarkColors ? "dark" : "light");
+        }
+      };
+      nativeTheme.on("updated", updated);
+      return () => {
+        nativeTheme.off("updated", updated);
+      };
+    })
+  ),
+
+  showMenu: t.procedure
+    .input(
+      z.object({
+        menuItems: z.array(z.any())
+      })
+    )
+    .subscription(({ input: { menuItems } }) =>
+      observable<string[]>((emit) => {
+        const items = menuItems as NNMenuItem[];
+        const menu = new Menu();
+        for (const item of items) {
+          const menuItem = toMenuItem(item, (id) => emit.next(id));
+          if (menuItem) menu.append(menuItem);
+        }
+        if (menu.items.length > 0) menu.popup();
+        return () => {
+          menu.removeAllListeners();
+          menu.closePopup();
+        };
+      })
+    )
+});
+
+function toMenuItem(
+  item: NNMenuItem,
+  onClick: (id: string[]) => void,
+  parentKey?: string
+): MenuItem | undefined {
+  switch (item.type) {
+    case "lazy-loader":
+      return undefined;
+    case "separator":
+      return new MenuItem({ type: "separator" });
+    case "button": {
+      const submenu = item.menu ? new Menu() : undefined;
+      if (submenu && item.menu) {
+        for (const subitem of item.menu.items) {
+          const subMenuItem = toMenuItem(subitem, onClick, item.key);
+          if (subMenuItem) submenu.append(subMenuItem);
+        }
+      }
+
+      return new MenuItem({
+        label: item.title,
+        enabled: !item.isDisabled,
+        visible: !item.isHidden,
+        toolTip: item.tooltip,
+        sublabel: item.tooltip,
+        checked: item.isChecked,
+        type: submenu ? "submenu" : item.isChecked ? "checkbox" : "normal",
+        id: item.key,
+        submenu,
+        click: () => onClick(parentKey ? [parentKey, item.key] : [item.key]),
+        accelerator: item.modifier?.replace("Mod", "CommandOrControl")
+      });
+    }
+  }
+}

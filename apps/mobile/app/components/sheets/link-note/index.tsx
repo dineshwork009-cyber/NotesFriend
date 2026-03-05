@@ -1,0 +1,398 @@
+import { useIsFeatureAvailable } from "@notesfriend/common";
+import {
+  ContentBlock,
+  Note,
+  VirtualizedGrouping,
+  createInternalLink
+} from "@notesfriend/core";
+import type { LinkAttributes } from "@notesfriend/editor";
+import { NativeEvents } from "@notesfriend/editor-mobile/src/utils/native-events";
+import { strings } from "@notesfriend/intl";
+import { useThemeColors } from "@notesfriend/theme";
+import React, { useEffect, useRef, useState } from "react";
+import { TextInput, View } from "react-native";
+import { FlatList } from "react-native-actions-sheet";
+import { db } from "../../../common/database";
+import { useDBItem } from "../../../hooks/use-db-item";
+import { editorController } from "../../../screens/editor/tiptap/utils";
+import { presentSheet } from "../../../services/event-manager";
+import { AppFontSize, defaultBorderRadius } from "../../../utils/size";
+import { DefaultAppStyles } from "../../../utils/styles";
+import { Button } from "../../ui/button";
+import Input from "../../ui/input";
+import { Pressable } from "../../ui/pressable";
+import Paragraph from "../../ui/typography/paragraph";
+
+const ListNoteItem = ({
+  id,
+  items,
+  onSelectNote
+}: {
+  id: any;
+  items: VirtualizedGrouping<Note> | undefined;
+  onSelectNote: any;
+}) => {
+  const [item] = useDBItem(id, "note", items);
+  return (
+    <Pressable
+      onPress={() => {
+        if (!item) return;
+        onSelectNote(item as Note);
+      }}
+      type={"transparent"}
+      style={{
+        paddingVertical: DefaultAppStyles.GAP_VERTICAL,
+        flexDirection: "row",
+        width: "100%",
+        justifyContent: "flex-start",
+        height: 50
+      }}
+    >
+      <View
+        style={{
+          flexShrink: 1
+        }}
+      >
+        <Paragraph numberOfLines={1}>{item?.title}</Paragraph>
+      </View>
+    </Pressable>
+  );
+};
+
+const ListBlockItem = ({
+  item,
+  onSelectBlock
+}: {
+  item: ContentBlock;
+  onSelectBlock: any;
+}) => {
+  const { colors } = useThemeColors();
+  return (
+    <Pressable
+      onPress={() => {
+        onSelectBlock(item);
+      }}
+      type={"transparent"}
+      style={{
+        flexDirection: "row",
+        width: "100%",
+        justifyContent: "flex-start",
+        minHeight: 45
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          width: "100%",
+          columnGap: 10,
+          alignItems: "flex-start",
+          borderBottomWidth: 1,
+          borderBottomColor: colors.primary.border,
+          paddingVertical: DefaultAppStyles.GAP_VERTICAL_SMALL,
+          justifyContent: "space-between"
+        }}
+      >
+        <Paragraph
+          style={{
+            flexShrink: 1
+          }}
+        >
+          {item?.content.length > 200
+            ? item?.content.slice(0, 200) + "..."
+            : !item.content || item.content.trim() === ""
+              ? strings.linkNoteEmptyBlock()
+              : item.content}
+        </Paragraph>
+
+        <View
+          style={{
+            borderRadius: defaultBorderRadius,
+            backgroundColor: colors.secondary.background,
+            height: 25,
+            minWidth: 25,
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <Paragraph color={colors.secondary.paragraph} size={AppFontSize.xs}>
+            {item.type.toUpperCase()}
+          </Paragraph>
+        </View>
+      </View>
+    </Pressable>
+  );
+};
+
+export default function LinkNote(props: {
+  attributes: LinkAttributes;
+  resolverId: string;
+  onLinkCreated: () => void;
+  close?: (ctx?: string) => void;
+}) {
+  const blockLinking = useIsFeatureAvailable("blockLinking");
+  const { colors } = useThemeColors();
+  const query = useRef<string>(undefined);
+  const [notes, setNotes] = useState<VirtualizedGrouping<Note>>();
+  const nodesRef = useRef<ContentBlock[]>([]);
+  const [nodes, setNodes] = useState<ContentBlock[]>([]);
+
+  const inputRef = useRef<TextInput>(null);
+
+  const [selectedNote, setSelectedNote] = useState<Note>();
+  const [selectedNodeId, setSelectedNodeId] = useState<string>();
+
+  useEffect(() => {
+    db.notes.all.sorted(db.settings.getGroupOptions("notes")).then((notes) => {
+      setNotes(notes);
+    });
+  }, []);
+
+  const onChange = async (value: string) => {
+    query.current = value;
+    if (!selectedNote) {
+      const notes = await db.lookup.notes(value).sorted();
+      setNotes(notes);
+    } else {
+      if (value.startsWith("#")) {
+        const headingNodes = nodesRef.current.filter((n) =>
+          n.type.match(/(h1|h2|h3|h4|h5|h6)/g)
+        );
+        setNodes(
+          headingNodes.filter((n) => n.content.includes(value.slice(1)))
+        );
+      } else {
+        setNodes(nodesRef.current.filter((n) => n.content.includes(value)));
+      }
+    }
+  };
+
+  const onCreateLink = (blockId?: string) => {
+    if (!selectedNote) return;
+    const link = createInternalLink(
+      "note",
+      selectedNote.id,
+      blockId
+        ? {
+            blockId: blockId
+          }
+        : undefined
+    );
+    editorController.current?.postMessage(NativeEvents.resolve, {
+      data: {
+        href: link,
+        title: selectedNote.title
+      },
+      resolverId: props.resolverId
+    });
+  };
+
+  const onSelectNote = async (note: Note) => {
+    setSelectedNote(note);
+    inputRef.current?.clear();
+    setTimeout(async () => {
+      nodesRef.current = await db.notes.contentBlocks(note.id);
+      setNodes(nodesRef.current);
+    });
+    // Fetch and set note's nodes.
+  };
+
+  const onSelectBlock = (block: ContentBlock) => {
+    onCreateLink(block.id);
+    props.onLinkCreated();
+    props.close?.();
+  };
+
+  return (
+    <View
+      style={{
+        paddingHorizontal: DefaultAppStyles.GAP,
+        minHeight: "100%",
+        maxHeight: "100%"
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "column",
+          width: "100%",
+          alignItems: "flex-start",
+          gap: 10
+        }}
+      >
+        <Input
+          placeholder={
+            selectedNote
+              ? strings.searchSectionToLinkPlaceholder()
+              : strings.searchNoteToLinkPlaceholder()
+          }
+          containerStyle={{
+            width: "100%"
+          }}
+          marginBottom={0}
+          onChangeText={(value) => {
+            onChange(value);
+          }}
+        />
+
+        {selectedNote ? (
+          <View
+            style={{
+              gap: 10
+            }}
+          >
+            <Paragraph color={colors.secondary.paragraph} size={AppFontSize.xs}>
+              {strings.linkNoteSelectedNote()}
+            </Paragraph>
+            <Pressable
+              onPress={() => {
+                setSelectedNote(undefined);
+                setSelectedNodeId(undefined);
+                setNodes([]);
+              }}
+              style={{
+                flexDirection: "row",
+                width: "100%",
+                justifyContent: "flex-start",
+                height: 45,
+                borderWidth: 1,
+                borderColor: colors.primary.accent,
+                paddingHorizontal: DefaultAppStyles.GAP
+              }}
+              type="secondaryAccented"
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%"
+                }}
+              >
+                <Paragraph
+                  style={{
+                    flexShrink: 1
+                  }}
+                  numberOfLines={1}
+                >
+                  {selectedNote?.title}
+                </Paragraph>
+
+                <Paragraph
+                  color={colors.secondary.paragraph}
+                  size={AppFontSize.xs}
+                >
+                  {strings.tapToDeselect()}
+                </Paragraph>
+              </View>
+            </Pressable>
+
+            {nodes?.length > 0 ? (
+              <Paragraph
+                style={{
+                  marginBottom: DefaultAppStyles.GAP_VERTICAL
+                }}
+                color={colors.secondary.paragraph}
+                size={AppFontSize.xs}
+              >
+                {strings.linkNoteToSection()}
+              </Paragraph>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+
+      {selectedNote ? (
+        <FlatList
+          renderItem={({ item, index }) => (
+            <ListBlockItem item={item} onSelectBlock={onSelectBlock} />
+          )}
+          style={{
+            marginTop: DefaultAppStyles.GAP_VERTICAL
+          }}
+          keyboardShouldPersistTaps="handled"
+          windowSize={3}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={
+            <View
+              style={{
+                gap: DefaultAppStyles.GAP_VERTICAL,
+                backgroundColor: colors.secondary.background,
+                padding: DefaultAppStyles.GAP,
+                borderRadius: defaultBorderRadius,
+                borderWidth: 0.5,
+                borderColor: colors.secondary.border,
+                alignItems: "center"
+              }}
+            >
+              <Paragraph color={colors.secondary.paragraph}>
+                {blockLinking?.error}
+              </Paragraph>
+              <Button
+                title={strings.upgradePlan()}
+                style={{
+                  width: "100%"
+                }}
+                type="accent"
+              />
+            </View>
+          }
+          data={blockLinking?.isAllowed ? nodes : []}
+        />
+      ) : (
+        <FlatList
+          renderItem={({ item, index }: any) => (
+            <ListNoteItem
+              id={index}
+              items={notes}
+              onSelectNote={onSelectNote}
+            />
+          )}
+          keyboardShouldPersistTaps="handled"
+          style={{
+            marginTop: DefaultAppStyles.GAP_VERTICAL
+          }}
+          windowSize={3}
+          data={notes?.placeholders}
+        />
+      )}
+
+      {selectedNote ? (
+        <Button
+          style={{
+            marginTop: DefaultAppStyles.GAP_VERTICAL
+          }}
+          title={strings.createLink()}
+          type="accent"
+          width="100%"
+          onPress={() => {
+            onCreateLink();
+            props.onLinkCreated();
+            props.close?.();
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+LinkNote.present = (attributes: LinkAttributes, resolverId: string) => {
+  let didCreateLink = false;
+  presentSheet({
+    component: (ref, close) => (
+      <LinkNote
+        attributes={attributes}
+        resolverId={resolverId}
+        onLinkCreated={() => {
+          didCreateLink = true;
+        }}
+        close={close}
+      />
+    ),
+    onClose: () => {
+      if (!didCreateLink) {
+        editorController?.current.commands.dismissCreateInternalLinkRequest(
+          resolverId
+        );
+      }
+    }
+  });
+};

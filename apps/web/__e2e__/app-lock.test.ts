@@ -1,0 +1,72 @@
+import { test, expect } from "@playwright/test";
+import { AppModel } from "./models/app.model";
+import { APP_LOCK_PASSWORD, USER } from "./utils";
+
+test("don't show status bar lock app button to unauthenticated user", async ({
+  page
+}) => {
+  const app = new AppModel(page);
+  await app.goto();
+
+  expect(await app.lockAppButton()).toBeHidden();
+});
+
+test("don't show status bar lock app button to authenticated user", async ({
+  page
+}) => {
+  const app = new AppModel(page);
+  await app.auth.goto();
+
+  await app.auth.login(USER.CURRENT);
+
+  expect(await app.lockAppButton()).toBeHidden();
+});
+
+test("show status bar lock app button to authenticated user if app lock is enabled", async ({
+  page
+}) => {
+  await page.exposeBinding("isPro", () => true);
+  const app = new AppModel(page);
+  await app.goto();
+
+  const settings = await app.goToSettings();
+  await settings.enableAppLock(USER.CURRENT.password!, APP_LOCK_PASSWORD);
+  await settings.close();
+
+  expect(await app.lockAppButton()).toBeVisible();
+});
+
+test("clicking on status bar lock app button should lock app", async ({
+  page
+}) => {
+  await page.exposeBinding("isPro", () => true);
+  const app = new AppModel(page);
+  await app.goto();
+
+  const settings = await app.goToSettings();
+  await settings.enableAppLock(USER.CURRENT.password!, APP_LOCK_PASSWORD);
+  await settings.close();
+  const lockAppButton = await app.lockAppButton();
+  await lockAppButton.waitFor({ state: "visible" });
+  await lockAppButton.click();
+
+  expect(page.getByText("Unlock your notes")).toBeVisible();
+});
+
+test("disabling app lock setting should remove status bar lock app button", async ({
+  page
+}) => {
+  await page.exposeBinding("isPro", () => true);
+  const app = new AppModel(page);
+  await app.goto();
+
+  let settings = await app.goToSettings();
+  await settings.enableAppLock(USER.CURRENT.password!, APP_LOCK_PASSWORD);
+  await settings.close();
+  (await app.lockAppButton()).waitFor({ state: "visible" });
+  settings = await app.goToSettings();
+  await settings.disableAppLock(APP_LOCK_PASSWORD);
+  await settings.close();
+
+  expect(await app.lockAppButton()).toBeHidden();
+});

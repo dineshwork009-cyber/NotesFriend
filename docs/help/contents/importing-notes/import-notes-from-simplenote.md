@@ -1,0 +1,30 @@
+---
+title: Simplenote
+---
+
+# How to import notes from Simplenote notes app?
+
+The following steps will help you import your notes from Simplenote easily.
+
+1. Open Simplenote app on Desktop or Login to [https://app.simplenote.com](https://app.simplenote.com).
+2. Go to sidebar and click on Settings.
+   ![](/static/simplenote-importer/1.png)
+3. Go to `Tools` tab in Settings
+   ![](/static/simplenote-importer/2.png)
+4. Click on `Export notes` to download your notes as a .zip file.
+5. Open the Notesfriend app (web or desktop)
+6. Go to `Settings > Notesfriend Importer` and select `Simplenote` from list of apps.
+   ![](/static/simplenote-importer/3.png)
+7. Drop the .zip backup file you exported earlier from Simplenote in the box or click anywhere to open system file picker to select the backup and click "Start processing".
+   ![](/static/simplenote-importer/4.png)
+8. Once importing completes you should see all your notes in Notesfriend. If you face any issues during importing, [report it on github](https://github.com/streetwriters/notesfriend).
+
+## Supported formats
+
+Simplenote's export is, well, pretty simple and the Notesfriend Importer supports 100% of it. It also preserves all the formatting and indenting in the imported notes.
+
+## Troubleshooting
+
+### Some of my notes have weird whitespacing and broken formatting after import. What do I do?
+
+This can happen in notes for which you have enabled Markdown in Simplenote. Notesfriend Importer follows this flag during processing and respects Markdown rules during the conversion to HTML. If you want to preserve the formatting of your notes, it is best that you disable the Markdown formatting for all your notes in Simplenote. This will force the Notesfriend Importer to import all your notes as plaintext.

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(echo:*)",
+      "Bash(node scripts/bootstrap.mjs:*)",
+      "Bash(npm run start:web:*)",
+      "Bash(ls:*)",
+      "Bash(xargs:*)",
+      "Bash(netstat:*)",
+      "Bash(wait)"
+    ]
+  }
+}

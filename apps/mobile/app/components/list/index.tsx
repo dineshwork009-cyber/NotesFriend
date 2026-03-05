@@ -1,0 +1,208 @@
+import { GroupingKey, Item, VirtualizedGrouping } from "@notesfriend/core";
+import { useThemeColors } from "@notesfriend/theme";
+import { LegendList, LegendListRenderItemProps } from "@legendapp/list";
+import React, { useEffect, useRef } from "react";
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  RefreshControl,
+  View
+} from "react-native";
+import { notesfriend } from "../../../e2e/test.ids";
+import { useGroupOptions } from "../../hooks/use-group-options";
+import { eSendEvent } from "../../services/event-manager";
+import Sync from "../../services/sync";
+import { RouteName } from "../../stores/use-navigation-store";
+import { useSettingStore } from "../../stores/use-setting-store";
+import { eScrollEvent } from "../../utils/events";
+import { fluidTabsRef } from "../../utils/global-refs";
+import { Header } from "../list-items/headers/header";
+import { Empty, PlaceholderData } from "./empty";
+import { ListItemWrapper } from "./list-item.wrapper";
+import { ScrollView } from "react-native-actions-sheet";
+
+type ListProps = {
+  data: VirtualizedGrouping<Item> | undefined;
+  dataType: Item["type"];
+  mode?: "drawer" | "sheet";
+  onRefresh?: () => void;
+  loading?: boolean;
+  headerTitle?: string;
+  customAccentColor?: string;
+  renderedInRoute?: RouteName;
+  CustomLisHeader?: React.JSX.Element;
+  isRenderedInActionSheet?: boolean;
+  CustomListComponent?: React.JSX.ElementType;
+  placeholder?: PlaceholderData;
+  id?: string;
+};
+
+const onMomentumScrollEnd = () => {
+  fluidTabsRef.current?.unlock();
+};
+
+export default function List(props: ListProps) {
+  const { colors } = useThemeColors();
+  const scrollRef = useRef(null);
+  const [notesListMode, notebooksListMode] = useSettingStore((state) => [
+    state.settings.notesListMode,
+    state.settings.notebooksListMode
+  ]);
+
+  const isCompactModeEnabled =
+    (props.dataType === "note" && notesListMode === "compact") ||
+    props.dataType === "notebook" ||
+    notebooksListMode === "compact";
+
+  const groupType =
+    props.renderedInRoute === "Notes"
+      ? "home"
+      : props.renderedInRoute === "Favorites"
+        ? "favorites"
+        : props.renderedInRoute === "Trash" || props.dataType === "trash"
+          ? "trash"
+          : `${props.dataType}s`;
+
+  const groupOptions = useGroupOptions(groupType);
+
+  const _onRefresh = async () => {
+    Sync.run("global", false, "full", () => {
+      props.onRefresh?.();
+    });
+  };
+
+  const getItemType = React.useCallback(
+    (item: number | boolean, index: number) => {
+      return props.data?.type(index);
+    },
+    []
+  );
+
+  const renderItem = React.useCallback(
+    (itemProps: LegendListRenderItemProps<any, any>) => {
+      return (
+        <ListItemWrapper
+          index={itemProps.index}
+          isSheet={props.isRenderedInActionSheet || false}
+          items={props.data}
+          groupOptions={groupOptions}
+          group={groupType as GroupingKey}
+          renderedInRoute={props.renderedInRoute}
+          customAccentColor={props.customAccentColor}
+          dataType={props.dataType}
+          scrollRef={scrollRef}
+        />
+      );
+    },
+    [
+      groupOptions,
+      groupType,
+      props.customAccentColor,
+      props.data,
+      props.dataType,
+      props.isRenderedInActionSheet,
+      props.renderedInRoute
+    ]
+  );
+
+  const onListScroll = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!event) return;
+      eSendEvent(eScrollEvent, {
+        y: event.nativeEvent.contentOffset.y,
+        route: props.renderedInRoute,
+        id: props.id || props.renderedInRoute
+      });
+    },
+    [props.renderedInRoute, props.id]
+  );
+
+  useEffect(() => {
+    eSendEvent(eScrollEvent, {
+      y: 0,
+      route: props.renderedInRoute,
+      id: props.id || props.renderedInRoute
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <>
+      <View
+        style={{
+          flex: 1
+        }}
+      >
+        <LegendList
+          ref={scrollRef}
+          contentContainerStyle={{
+            flexGrow: 1
+          }}
+          extraData={props.data}
+          testID={notesfriend.list.id}
+          data={props.data?.placeholders || []}
+          renderScrollComponent={
+            props.isRenderedInActionSheet
+              ? (props) => <ScrollView {...props} />
+              : undefined
+          }
+          renderItem={renderItem}
+          onScroll={onListScroll}
+          nestedScrollEnabled={true}
+          onMomentumScrollEnd={onMomentumScrollEnd}
+          getItemType={getItemType}
+          estimatedItemSize={isCompactModeEnabled ? 60 : 120}
+          directionalLockEnabled={true}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
+          ListEmptyComponent={
+            <View
+              style={{
+                flex: 1
+              }}
+            >
+              <Empty
+                loading={props.loading}
+                title={props.headerTitle}
+                dataType={props.dataType}
+                color={props.customAccentColor}
+                placeholder={props.placeholder}
+                screen={props.renderedInRoute}
+              />
+            </View>
+          }
+          ListFooterComponent={
+            <View
+              style={{ height: props.data?.placeholders?.length ? 100 : 0 }}
+            />
+          }
+          refreshControl={
+            props.isRenderedInActionSheet ? (
+              <></>
+            ) : (
+              <RefreshControl
+                tintColor={colors.primary.accent}
+                colors={[colors.primary.accent]}
+                progressBackgroundColor={colors.secondary.background}
+                onRefresh={_onRefresh}
+                refreshing={false}
+              />
+            )
+          }
+          ListHeaderComponent={
+            <>
+              {props.CustomLisHeader ? (
+                props.CustomLisHeader
+              ) : !props.headerTitle ? null : (
+                <Header
+                  color={props.customAccentColor}
+                  screen={props.renderedInRoute}
+                />
+              )}
+            </>
+          }
+        />
+      </View>
+    </>
+  );
+}

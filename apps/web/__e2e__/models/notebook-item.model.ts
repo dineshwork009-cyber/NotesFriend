@@ -1,0 +1,104 @@
+import { Locator } from "@playwright/test";
+import { BaseItemModel } from "./base-item.model";
+import { ContextMenuModel } from "./context-menu.model";
+import { ToggleModel } from "./toggle.model";
+import { Notebook } from "./types";
+import { confirmDialog, fillNotebookDialog } from "./utils";
+import { NotesViewModel } from "./notes-view.model";
+import { getTestId } from "../utils";
+import { NotebooksViewModel } from "./notebooks-view.model";
+
+export class NotebookItemModel extends BaseItemModel {
+  private readonly contextMenu: ContextMenuModel;
+  constructor(
+    locator: Locator,
+    private readonly notebooks: NotebooksViewModel
+  ) {
+    super(locator);
+    this.contextMenu = new ContextMenuModel(this.page);
+  }
+
+  async openNotebook() {
+    await this.locator.click();
+    return new NotesViewModel(this.page, "notebook", "notes");
+  }
+
+  async editNotebook(notebook: Notebook) {
+    await this.contextMenu.open(this.locator);
+    await this.contextMenu.clickOnItem("edit");
+
+    await fillNotebookDialog(this.page, notebook);
+  }
+
+  async createSubnotebook(notebook: Notebook) {
+    await this.contextMenu.open(this.locator);
+    await this.contextMenu.clickOnItem("add");
+
+    await fillNotebookDialog(this.page, notebook);
+
+    await this.notebooks.waitForItem(notebook.title);
+    return await this.notebooks.findNotebook(notebook);
+  }
+
+  async moveToTrash(deleteContainedNotes = false) {
+    await this.contextMenu.open(this.locator);
+    await this.contextMenu.clickOnItem("movetotrash");
+
+    if (deleteContainedNotes)
+      await this.page.locator("#deleteContainingNotes").check({ force: true });
+
+    await confirmDialog(this.page.locator(getTestId("confirm-dialog")));
+    await this.waitFor("detached");
+  }
+
+  async pin() {
+    await this.contextMenu.open(this.locator);
+    await new ToggleModel(this.page, "menu-button-pin").on();
+  }
+
+  async unpin() {
+    await this.contextMenu.open(this.locator);
+    await new ToggleModel(this.page, "menu-button-pin").off();
+  }
+
+  async isPinned() {
+    await this.contextMenu.open(this.locator);
+    const state = await new ToggleModel(
+      this.page,
+      "menu-button-pin"
+    ).isToggled();
+    await this.contextMenu.close();
+    return state;
+  }
+
+  async createShortcut() {
+    await this.contextMenu.open(this.locator);
+    await this.contextMenu.clickOnItem("shortcut");
+  }
+
+  async removeShortcut() {
+    await this.contextMenu.open(this.locator);
+    await this.contextMenu.clickOnItem("shortcut");
+  }
+
+  async isShortcut() {
+    await this.contextMenu.open(this.locator);
+    const state =
+      (await this.contextMenu.getItem("shortcut").textContent()) ===
+      "Remove shortcut";
+    await this.contextMenu.close();
+    return state;
+  }
+
+  async setAsDefault() {
+    await this.contextMenu.open(this.locator);
+    await new ToggleModel(this.page, "menu-button-set-as-default").on();
+  }
+
+  async isMoveToTopVisible() {
+    await this.contextMenu.open(this.locator);
+    return this.contextMenu.menuContainer
+      .locator(getTestId("menu-button-move-to-top"))
+      .isVisible();
+  }
+}

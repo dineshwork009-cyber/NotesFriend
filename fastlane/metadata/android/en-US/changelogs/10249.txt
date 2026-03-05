@@ -1,0 +1,6 @@
+- Preview PDFs & Images directly inside Notesfriend."
+- Improved attachments manager with support for downloading all attachments
+- Assign tags to multiple notes
+- Bug fixes and performance improvements
+
+Thank you for using Notesfriend!

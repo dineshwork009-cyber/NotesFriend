@@ -1,0 +1,92 @@
+import { ThemeDefinition } from "@notesfriend/theme";
+import { Appearance, StatusBar } from "react-native";
+import { create } from "zustand";
+import SettingsService from "../services/settings";
+import switchTheme from "react-native-theme-switch-animation";
+
+import changeNavigationBarColor from "react-native-navigation-bar-color";
+export interface ThemeStore {
+  lightTheme: ThemeDefinition;
+  darkTheme: ThemeDefinition;
+  colorScheme: "dark" | "light";
+  setDarkTheme: (theme: ThemeDefinition) => void;
+  setLightTheme: (theme: ThemeDefinition) => void;
+  setColorScheme: (colorScheme?: "dark" | "light") => void;
+}
+
+export function changeSystemBarColors() {
+  const change = () => {
+    const currTheme =
+      useThemeStore.getState().colorScheme === "dark"
+        ? SettingsService.getProperty("darkTheme")
+        : SettingsService.getProperty("lighTheme");
+
+    const isDark = useThemeStore.getState().colorScheme === "dark";
+    changeNavigationBarColor(
+      currTheme.scopes.base.primary.background,
+      !isDark,
+      false
+    );
+    StatusBar.setBackgroundColor("transparent" as any);
+    StatusBar.setTranslucent(true);
+    StatusBar.setBarStyle(isDark ? "light-content" : "dark-content");
+  };
+  change();
+  setTimeout(change, 400);
+  setTimeout(change, 1000);
+}
+
+function switchThemeWithAnimation(fn: () => void) {
+  switchTheme({
+    switchThemeFunction: fn,
+    animationConfig: {
+      type: "circular",
+      duration: 500,
+      startingPoint: {
+        cxRatio: 0,
+        cyRatio: 0
+      }
+    }
+  });
+}
+
+export const useThemeStore = create<ThemeStore>((set, get) => ({
+  lightTheme: SettingsService.get().lighTheme,
+  darkTheme: SettingsService.get().darkTheme,
+  colorScheme: SettingsService.get().useSystemTheme
+    ? (Appearance.getColorScheme() as "dark" | "light")
+    : SettingsService.get().colorScheme,
+  setDarkTheme: (darkTheme) => {
+    switchThemeWithAnimation(() => {
+      set({ darkTheme });
+      changeSystemBarColors();
+      SettingsService.setProperty("darkTheme", darkTheme);
+    });
+  },
+  setLightTheme: (lightTheme) => {
+    switchThemeWithAnimation(() => {
+      set({ lightTheme });
+      changeSystemBarColors();
+      SettingsService.setProperty("lighTheme", lightTheme);
+    });
+  },
+  setColorScheme: (colorScheme) => {
+    switchThemeWithAnimation(() => {
+      const nextColorScheme =
+        colorScheme === undefined
+          ? get().colorScheme === "dark"
+            ? "light"
+            : "dark"
+          : colorScheme;
+      set({
+        colorScheme: nextColorScheme
+      });
+      changeSystemBarColors();
+      if (!SettingsService.getProperty("useSystemTheme")) {
+        SettingsService.set({
+          colorScheme: nextColorScheme
+        });
+      }
+    });
+  }
+}));

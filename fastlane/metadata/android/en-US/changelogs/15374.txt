@@ -1,0 +1,5 @@
+- Collapsible Headings
+- Notesfriend Circle
+- Minor bug fixes and improvements
+
+Thank you for using Notesfriend!

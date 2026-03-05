@@ -1,0 +1,137 @@
+import {
+  noteTest,
+  TEST_NOTE,
+  notebookTest,
+  TEST_NOTEBOOK2,
+  databaseTest
+} from "./utils/index.ts";
+import { test, expect, describe } from "vitest";
+
+const content = {
+  ...TEST_NOTE.content,
+  data: "<p>hello i am a note of the world</p>"
+};
+
+//TODO
+test("search notes", () =>
+  noteTest({
+    content: content
+  }).then(async ({ db }) => {
+    await db.notes.add(TEST_NOTE);
+    await db.notes.add({
+      content: { data: "<p>hb <b>kb</b> ch</p>", type: "tiptap" },
+      title: "hello"
+    });
+
+    expect(await db.lookup.notes("note of the world").ids()).toHaveLength(1);
+    expect(await db.lookup.notes("hb kb ch").ids()).toHaveLength(1);
+  }));
+
+test("search notes (remove diacritics)", () =>
+  noteTest({
+    content: {
+      type: "tiptap",
+      data: "<p>hello i am à la maison</p>"
+    }
+  }).then(async ({ db }) => {
+    await db.notes.add(TEST_NOTE);
+    let filtered = await db.lookup.notes("a la maison").ids();
+    expect(filtered).toHaveLength(1);
+  }));
+
+test("search notes (remove html tags)", () =>
+  noteTest({
+    content: {
+      type: "tiptap",
+      data: "<p block-id='1'>hello this is a word</p>"
+    }
+  }).then(async ({ db }) => {
+    await db.notes.add(TEST_NOTE);
+    expect(await db.lookup.notes("block").ids()).toHaveLength(0);
+    expect(await db.lookup.notes("hello").ids()).toHaveLength(2);
+    expect(await db.lookup.notes("word").ids()).toHaveLength(1);
+  }));
+
+test("search notes with a locked note", () =>
+  noteTest({
+    content: content
+  }).then(async ({ db }) => {
+    const noteId = await db.notes.add(TEST_NOTE);
+    await db.vault.create("password");
+    await db.vault.add(noteId);
+    expect(await db.lookup.notes("note of the world").ids()).toHaveLength(1);
+    expect(await db.lookup.notes("format").ids()).toHaveLength(0);
+  }));
+
+test("search notes with an empty note", () =>
+  noteTest({
+    content: content
+  }).then(async ({ db }) => {
+    await db.notes.add({
+      title: "world is a heavy tune",
+      content: { type: "tiptap", data: "<p><br></p>" }
+    });
+    let filtered = await db.lookup.notes("heavy tune").ids();
+    expect(filtered).toHaveLength(1);
+  }));
+
+test("search notebooks", () =>
+  notebookTest().then(async ({ db }) => {
+    await db.notebooks.add(TEST_NOTEBOOK2);
+    let filtered = await db.lookup.notebooks("Description").ids();
+    expect(filtered.length).toBeGreaterThan(0);
+  }));
+
+test("search should not return trashed notes", () =>
+  databaseTest().then(async (db) => {
+    const id = await db.notes.add({
+      title: "world is a heavy tune"
+    });
+    await db.notes.moveToTrash(id);
+
+    const filtered = await db.lookup.notes("heavy tune").ids();
+
+    expect(filtered).toHaveLength(0);
+  }));
+
+test("search should return restored notes", () =>
+  databaseTest().then(async (db) => {
+    const id = await db.notes.add({
+      title: "world is a heavy tune"
+    });
+    await db.notes.moveToTrash(id);
+    await db.trash.restore(id);
+
+    const filtered = await db.lookup.notes("heavy tune").ids();
+
+    expect(filtered).toHaveLength(1);
+  }));
+
+test("search reminders", () =>
+  databaseTest().then(async (db) => {
+    await db.reminders.add({
+      title: "remind me",
+      description: "please do",
+      date: Date.now()
+    });
+
+    const titleSearch = await db.lookup.reminders("remind me").ids();
+    expect(titleSearch).toHaveLength(1);
+    const descriptionSearch = await db.lookup.reminders("please do").ids();
+    expect(descriptionSearch).toHaveLength(1);
+  }));
+
+describe("notesWithHighlighting", () => {
+  test("search notes with parentheses in query should load the item", () =>
+    noteTest({
+      title: "(with parantheses)"
+    }).then(async ({ db }) => {
+      await db.notes.add(TEST_NOTE);
+      const filtered = await db.lookup.notesWithHighlighting(
+        "(with parantheses)",
+        db.notes.all
+      );
+      const item = await filtered.item(0);
+      expect(item.item).toBeDefined();
+    }));
+});
